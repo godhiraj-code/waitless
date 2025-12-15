@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "waitless"
+version = "0.1.0"
+description = "Eliminate explicit waits in UI automation by detecting true UI stability"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Dhiraj Das", email = "dhirajdas.66@gmail.com"}
+]
+keywords = [
+    "selenium",
+    "automation",
+    "testing",
+    "ui-testing",
+    "wait",
+    "stability",
+    "flaky-tests"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.urls]
+Homepage = "https://github.com/godhiraj-code/waitless"
+Documentation = "https://github.com/godhiraj-code/waitless#readme"
+Repository = "https://github.com/godhiraj-code/waitless.git"
+Issues = "https://github.com/godhiraj-code/waitless/issues"
+
+[project.scripts]
+waitless = "waitless.__main__:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "selenium>=4.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["waitless*"]

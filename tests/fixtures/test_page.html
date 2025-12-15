@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Waitless Test Fixture</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ccc;
+            border-top-color: #333;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .hidden { display: none; }
+        
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px;
+        }
+        
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        
+        .loading { background: #fff3cd; }
+        .success { background: #d4edda; }
+        .error { background: #f8d7da; }
+    </style>
+</head>
+<body>
+    <h1>Waitless Test Fixture</h1>
+    <p>This page simulates common UI patterns that cause flaky tests.</p>
+    
+    <hr>
+    
+    <h2>1. Delayed Content Loading</h2>
+    <button id="load-content-btn" onclick="loadDelayedContent()">Load Content</button>
+    <div id="delayed-content" class="hidden">
+        <p id="loaded-text">Content loaded successfully!</p>
+    </div>
+    
+    <hr>
+    
+    <h2>2. AJAX Request</h2>
+    <button id="ajax-btn" onclick="makeAjaxRequest()">Make AJAX Request</button>
+    <div id="ajax-status" class="status hidden"></div>
+    
+    <hr>
+    
+    <h2>3. Animation</h2>
+    <button id="animate-btn" onclick="startAnimation()">Start Animation</button>
+    <div id="animated-box" style="width: 50px; height: 50px; background: blue; display: none;"></div>
+    <p id="animation-complete" class="hidden">Animation complete!</p>
+    
+    <hr>
+    
+    <h2>4. DOM Mutations</h2>
+    <button id="mutate-btn" onclick="triggerMutations()">Trigger DOM Mutations</button>
+    <div id="mutation-container"></div>
+    
+    <hr>
+    
+    <h2>5. Infinite Spinner (Edge Case)</h2>
+    <button id="spinner-btn" onclick="toggleSpinner()">Toggle Spinner</button>
+    <div id="spinner-container" class="hidden">
+        <span class="spinner"></span> Loading forever...
+    </div>
+    
+    <script>
+        // 1. Delayed content
+        function loadDelayedContent() {
+            setTimeout(() => {
+                document.getElementById('delayed-content').classList.remove('hidden');
+            }, 500);
+        }
+        
+        // 2. AJAX simulation
+        function makeAjaxRequest() {
+            const status = document.getElementById('ajax-status');
+            status.className = 'status loading';
+            status.textContent = 'Loading...';
+            status.classList.remove('hidden');
+            
+            // Simulate AJAX with fetch
+            fetch('https://jsonplaceholder.typicode.com/posts/1')
+                .then(response => response.json())
+                .then(data => {
+                    status.className = 'status success';
+                    status.textContent = `Loaded: ${data.title.substring(0, 50)}...`;
+                })
+                .catch(error => {
+                    status.className = 'status error';
+                    status.textContent = `Error: ${error.message}`;
+                });
+        }
+        
+        // 3. CSS Animation
+        function startAnimation() {
+            const box = document.getElementById('animated-box');
+            const complete = document.getElementById('animation-complete');
+            
+            box.style.display = 'block';
+            complete.classList.add('hidden');
+            
+            box.animate([
+                { transform: 'translateX(0) rotate(0deg)' },
+                { transform: 'translateX(200px) rotate(180deg)' }
+            ], {
+                duration: 1000,
+                easing: 'ease-in-out'
+            }).onfinish = () => {
+                complete.classList.remove('hidden');
+            };
+        }
+        
+        // 4. DOM Mutations
+        function triggerMutations() {
+            const container = document.getElementById('mutation-container');
+            container.innerHTML = '';
+            
+            let count = 0;
+            const interval = setInterval(() => {
+                const p = document.createElement('p');
+                p.textContent = `Mutation ${++count}`;
+                container.appendChild(p);
+                
+                if (count >= 5) {
+                    clearInterval(interval);
+                    const done = document.createElement('p');
+                    done.id = 'mutations-complete';
+                    done.textContent = 'All mutations complete!';
+                    done.style.fontWeight = 'bold';
+                    container.appendChild(done);
+                }
+            }, 100);
+        }
+        
+        // 5. Infinite spinner toggle
+        function toggleSpinner() {
+            const spinner = document.getElementById('spinner-container');
+            spinner.classList.toggle('hidden');
+        }
+    </script>
+</body>
+</html>
