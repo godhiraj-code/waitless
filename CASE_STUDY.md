@@ -121,9 +121,9 @@ Created a signal-based system with mandatory and optional indicators:
 
 | Signal | Type | Threshold | Mandatory |
 |--------|------|-----------|-----------|
-| DOM Mutations | MutationObserver | 100ms quiet period | Yes |
-| Network Requests | XHR/fetch count | 0 pending | Yes |
-| CSS Animations | Event listeners | 0 active | Configurable |
+| DOM Mutations | MutationObserver | 50 mutations/sec | Yes |
+| Network Requests | XHR/fetch count | 2 pending | Yes |
+| CSS Animations | Event listeners | 0 active | Strict mode only |
 | Layout Shifts | Position tracking | <1px movement | Strict mode |
 
 #### 2. Build JavaScript Instrumentation
@@ -137,12 +137,17 @@ Injected script creates a `window.__waitless__` object that:
 ```javascript
 window.__waitless__ = {
     pendingRequests: 0,
-    lastMutationTime: Date.now(),
+    mutationTimestamps: [],  // Rolling window for rate calculation
     activeAnimations: 0,
     
+    getMutationRate() {
+        const cutoff = Date.now() - 1000;
+        return this.mutationTimestamps.filter(t => t > cutoff).length;
+    },
+    
     isStable() {
-        if (this.pendingRequests > 0) return false;
-        if (Date.now() - this.lastMutationTime < 100) return false;
+        if (this.pendingRequests > 2) return false;  // Allow background traffic
+        if (this.getMutationRate() > 50) return false;  // Rate-based check
         return true;
     }
 };
@@ -161,6 +166,16 @@ Python engine that:
 Instead of monkey-patching Selenium (risky), used wrapper pattern:
 
 ```python
+class StabilizedWebDriver:
+    def find_element(self, *args):
+        # Auto-retry until element appears - no WebDriverWait needed!
+        while time.time() - start < timeout:
+            self._engine.wait_for_stability()
+            try:
+                return self._driver.find_element(*args)
+            except NoSuchElementException:
+                time.sleep(poll_interval)  # Retry
+
 class StabilizedWebElement:
     def click(self):
         self._engine.wait_for_stability()  # Auto-wait!

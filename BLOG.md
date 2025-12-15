@@ -152,12 +152,18 @@ Waitless has two parts:
 ```javascript
 window.__waitless__ = {
     pendingRequests: 0,
-    lastMutationTime: Date.now(),
+    mutationTimestamps: [],  // Rolling window for rate calculation
     activeAnimations: 0,
     
+    getMutationRate() {
+        // Count mutations in last second
+        const cutoff = Date.now() - 1000;
+        return this.mutationTimestamps.filter(t => t > cutoff).length;
+    },
+    
     isStable() {
-        if (this.pendingRequests > 0) return false;
-        if (Date.now() - this.lastMutationTime < 100) return false;
+        if (this.pendingRequests > 2) return false;  // Allow background traffic
+        if (this.getMutationRate() > 50) return false;  // Rate-based, not silence
         return true;
     }
 };
@@ -196,12 +202,20 @@ driver.find_element(By.ID, "button").click()  # Now auto-waits!
 
 How does this work? The `stabilize()` function wraps the driver in a `StabilizedWebDriver` that intercepts `find_element()` calls. Retrieved elements are wrapped in `StabilizedWebElement`. When you call `.click()`, it first waits for stability, then clicks.
 
-```python
+class StabilizedWebDriver:
+    def find_element(self, *args):
+        # Auto-retry until element appears!
+        while time.time() - start < timeout:
+            self._engine.wait_for_stability()
+            try:
+                return self._driver.find_element(*args)
+            except NoSuchElementException:
+                time.sleep(0.05)  # Retry
+
 class StabilizedWebElement:
     def click(self):
         self._engine.wait_for_stability()  # Auto-wait!
         return self._element.click()  # Then click
-```
 
 Your tests don't know they're waiting. They just... stop failing.
 
@@ -330,7 +344,7 @@ Waitless gives Selenium users the reliability of Playwright without the rewrite.
 
 ---
 
-## Current Limitations (v0.1.0)
+## Current Limitations (v0.2.0)
 
 Being honest about what doesn't work yet:
 
@@ -339,6 +353,13 @@ Being honest about what doesn't work yet:
 - **Main frame only** - iframes not monitored 
 - **No Shadow DOM** - MutationObserver can't see shadow roots
 - **Chrome-focused** - Tested primarily on Chromium
+
+### What's New in v0.2.0
+
+- **Mutation rate detection** - Uses 50 mutations/sec threshold instead of absolute DOM silence. Works with animated sites!
+- **Auto-retry find_element** - No more `WebDriverWait` needed! Elements are found automatically when they appear.
+- **Non-blocking animations** - CSS animations no longer block in normal mode.
+- **Better diagnostics** - Shows mutation_rate, pending_requests, active_animations.
 
 These will be addressed in future versions - contributions will make it release this earlier
 
@@ -378,7 +399,7 @@ The answer determines when your test proceeds. No guessing. No arbitrary delays.
 
 ---
 
-*Waitless is open source. [GitHub Repository](https://github.com/user/waitless)*
+*Waitless is open source. [GitHub Repository](https://github.com/godhiraj-code/waitless)*
 
 ---
 
