@@ -1,32 +1,28 @@
 """
-Demo: Flaky Test → Stable Test with Waitless
+Demo: Waitless on TodoMVC (React)
 
-Simple demo showing waitless in action:
-1. Load site
-2. Click About menu
-3. Click Latest Insights "Read Article"
+Tests waitless on TodoMVC React app - a site with:
+- Dynamic DOM updates
+- CSS animations
+- No page reloads (SPA)
 
-Without waitless: May fail - popup not ready
-With waitless: Automatically waits for element to appear
-
-Run: python demo_flaky_to_stable.py [--flaky|--stable]
+Run: python demo_todomvc.py [--flaky|--stable]
 """
 
 import time
 import sys
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
-    StaleElementReferenceException,
-    ElementNotInteractableException,
     NoSuchElementException,
 )
 
 from waitless import stabilize, StabilizationConfig, get_diagnostics
 
-URL = "https://www.dhirajdas.dev"
+URL = "https://todomvc.com/examples/react/dist/"
 
 
 def create_driver():
@@ -36,7 +32,7 @@ def create_driver():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# WITHOUT WAITLESS - Flaky
+# WITHOUT WAITLESS
 # ═══════════════════════════════════════════════════════════════════════════
 
 def test_without_waitless():
@@ -48,35 +44,38 @@ def test_without_waitless():
     driver = create_driver()
     
     try:
-        # Step 1: Load site
-        print("\n→ Loading site...")
+        # Step 1: Go to TodoMVC
+        print("\n→ Loading TodoMVC...")
         driver.get(URL)
         
-        # Step 2: Click About immediately
-        print("→ Clicking 'About' immediately...")
+        # Step 2: Type a new todo immediately
+        print("→ Adding todo item immediately...")
         try:
-            about = driver.find_element(By.XPATH, "//a[contains(text(), 'About')]")
-            about.click()
-            print("  ✓ About clicked")
-        except (ElementClickInterceptedException, ElementNotInteractableException) as e:
-            print(f"  ✗ FAILED: {type(e).__name__}")
-            return False
-        
-        # Step 3: Go back to homepage
-        driver.get(URL)
-        
-        # Step 4: Try to click Latest Insights immediately (will fail - popup not ready)
-        print("→ Clicking 'Read Article' in Latest Insights immediately...")
-        try:
-            # The popup takes 2-3 seconds to appear - this will fail
-            read_article = driver.find_element(By.CSS_SELECTOR, ".blog-nudge-button")
-            read_article.click()
-            print("  ✓ Read Article clicked")
+            input_box = driver.find_element(By.CSS_SELECTOR, ".new-todo")
+            input_box.send_keys("Test item 1" + Keys.ENTER)
+            print("  ✓ Todo added")
         except NoSuchElementException as e:
-            print(f"  ✗ FAILED: Element not found - popup not ready")
+            print(f"  ✗ FAILED: Input not found yet")
             return False
-        except (ElementClickInterceptedException, ElementNotInteractableException) as e:
-            print(f"  ✗ FAILED: {type(e).__name__}")
+        
+        # Step 3: Toggle the todo immediately 
+        print("→ Toggling todo immediately...")
+        try:
+            toggle = driver.find_element(By.CSS_SELECTOR, ".toggle")
+            toggle.click()
+            print("  ✓ Todo toggled")
+        except NoSuchElementException as e:
+            print(f"  ✗ FAILED: Toggle not found")
+            return False
+        
+        # Step 4: Click Clear Completed
+        print("→ Clicking 'Clear completed' immediately...")
+        try:
+            clear_btn = driver.find_element(By.CSS_SELECTOR, ".clear-completed")
+            clear_btn.click()
+            print("  ✓ Cleared completed")
+        except NoSuchElementException as e:
+            print(f"  ✗ FAILED: Clear button not found")
             return False
         
         print("\n" + "-" * 40)
@@ -93,11 +92,11 @@ def test_without_waitless():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# WITH WAITLESS - Stable
+# WITH WAITLESS
 # ═══════════════════════════════════════════════════════════════════════════
 
 def test_with_waitless():
-    """Stable test - waitless auto-waits for elements to appear."""
+    """Stable test - waitless auto-waits."""
     print("\n" + "=" * 60)
     print("TEST WITH WAITLESS (Stable)")
     print("=" * 60)
@@ -110,28 +109,28 @@ def test_with_waitless():
         driver = stabilize(driver, config=config)
         print("\n✓ Waitless enabled")
         
-        # Step 1: Load site
-        print("\n→ Loading site...")
+        # Step 1: Go to TodoMVC
+        print("\n→ Loading TodoMVC...")
         driver.get(URL)
         print("  ✓ Site loaded")
         
-        # Step 2: Click About - waitless auto-waits before click
-        print("\n→ Clicking 'About' menu...")
-        about = driver.find_element(By.XPATH, "//a[contains(text(), 'About')]")
-        about.click()  # ← Waitless auto-waits for stability
-        print("  ✓ About clicked")
+        # Step 2: Type a new todo - waitless auto-waits for input
+        print("\n→ Adding todo item...")
+        input_box = driver.find_element(By.CSS_SELECTOR, ".new-todo")
+        input_box.send_keys("Test item 1" + Keys.ENTER)
+        print("  ✓ Todo added")
         
-        # Step 3: Go back to homepage
-        print("\n→ Going back to homepage...")
-        driver.get(URL)
+        # Step 3: Toggle the todo - waitless auto-waits for toggle
+        print("\n→ Toggling todo...")
+        toggle = driver.find_element(By.CSS_SELECTOR, ".toggle")
+        toggle.click()
+        print("  ✓ Todo toggled")
         
-        # Step 4: Click Latest Insights - waitless auto-waits for element to appear!
-        # NO WebDriverWait needed - waitless handles it
-        print("\n→ Clicking 'Read Article' in Latest Insights...")
-        print("  (waitless auto-waits for popup to appear)")
-        read_article = driver.find_element(By.CSS_SELECTOR, ".blog-nudge-button")
-        read_article.click()  # ← Waitless auto-waits for stability
-        print("  ✓ Read Article clicked")
+        # Step 4: Click Clear Completed - waitless auto-waits
+        print("\n→ Clicking 'Clear completed'...")
+        clear_btn = driver.find_element(By.CSS_SELECTOR, ".clear-completed")
+        clear_btn.click()
+        print("  ✓ Cleared completed")
         
         # Show diagnostics
         print("\n" + "=" * 40)
@@ -139,15 +138,15 @@ def test_with_waitless():
         print("=" * 40)
         diag = get_diagnostics(driver)
         if diag:
-            status = diag.get('last_status', {})
+            status = diag.get('last_status', {}) or {}
             print(f"🔍 What Waitless Detected:")
             print(f"  • Mutation rate: {status.get('mutation_rate', 'N/A')}/sec")
             print(f"  • Pending requests: {status.get('pending_requests', 'N/A')}")
             print(f"  • Active animations: {status.get('active_animations', 'N/A')}")
         
         print("\n" + "-" * 40)
-        print("STABLE: All clicks succeeded!")
-        print("Waitless automatically waited for elements and stability.")
+        print("STABLE: All actions succeeded!")
+        print("Waitless handled React's dynamic DOM.")
         return True
         
     except Exception as e:
@@ -172,11 +171,10 @@ if __name__ == "__main__":
         elif sys.argv[1] == "--stable":
             test_with_waitless()
         else:
-            print("Usage: python demo_flaky_to_stable.py [--flaky|--stable]")
+            print("Usage: python demo_todomvc.py [--flaky|--stable]")
     else:
-        # Run both
         print("\n╔" + "═" * 50 + "╗")
-        print("║  WAITLESS DEMO: Flaky → Stable                    ║")
+        print("║  WAITLESS DEMO: TodoMVC React                     ║")
         print("╚" + "═" * 50 + "╝")
         
         input("\n[Press Enter to run FLAKY test...]")
@@ -188,6 +186,6 @@ if __name__ == "__main__":
         print("\n╔" + "═" * 50 + "╗")
         print("║  SUMMARY                                          ║")
         print("╠" + "═" * 50 + "╣")
-        print(f"║  Without Waitless: {'FLAKY' if not result1 else 'Passed':<28}  ║")
-        print(f"║  With Waitless:    {'STABLE' if result2 else 'Failed':<28}  ║")
+        print(f"║  Without: {'FLAKY' if not result1 else 'Passed':<36}  ║")
+        print(f"║  With:    {'STABLE' if result2 else 'Failed':<36}  ║")
         print("╚" + "═" * 50 + "╝")

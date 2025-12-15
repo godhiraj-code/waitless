@@ -68,11 +68,26 @@ INSTRUMENTATION_SCRIPT = """
         
         // ===== MUTATION OBSERVER =====
         
+        // Rolling window for mutation rate calculation
+        _mutationTimestamps: [],
+        _mutationWindowMs: 1000,  // 1 second window for rate calculation
+        
         _setupMutationObserver: function() {
             var self = this;
             var observer = new MutationObserver(function(mutations) {
-                self.lastMutationTime = Date.now();
-                self._log('DOM mutation', { count: mutations.length });
+                var now = Date.now();
+                self.lastMutationTime = now;
+                
+                // Add to rolling window
+                self._mutationTimestamps.push(now);
+                
+                // Remove old timestamps outside the window
+                var cutoff = now - self._mutationWindowMs;
+                while (self._mutationTimestamps.length > 0 && self._mutationTimestamps[0] < cutoff) {
+                    self._mutationTimestamps.shift();
+                }
+                
+                self._log('DOM mutation', { count: mutations.length, rate: self.getMutationRate() });
             });
             
             observer.observe(document.documentElement || document.body, {
@@ -83,6 +98,23 @@ INSTRUMENTATION_SCRIPT = """
             });
             
             this._observers.push(observer);
+        },
+        
+        // Calculate mutations per second from rolling window
+        getMutationRate: function() {
+            var now = Date.now();
+            var cutoff = now - this._mutationWindowMs;
+            
+            // Count mutations in the last second
+            var count = 0;
+            for (var i = 0; i < this._mutationTimestamps.length; i++) {
+                if (this._mutationTimestamps[i] > cutoff) {
+                    count++;
+                }
+            }
+            
+            // Return rate per second
+            return count;
         },
         
         // ===== NETWORK INTERCEPTORS =====
@@ -246,6 +278,7 @@ INSTRUMENTATION_SCRIPT = """
                 stable: this.isStable(),
                 pending_requests: this.pendingRequests,
                 last_mutation_time: this.lastMutationTime,
+                mutation_rate: this.getMutationRate(),  // mutations per second
                 active_animations: this.activeAnimations + this.activeTransitions,
                 layout_shifting: this.layoutShifting,
                 pending_request_details: this.pendingRequestDetails.slice(),

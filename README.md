@@ -65,12 +65,12 @@ When you interact, waitless ensures the page is truly ready.
 from waitless import stabilize, StabilizationConfig
 
 config = StabilizationConfig(
-    timeout=5,                    # Max wait time (seconds)
-    dom_settle_time=0.1,          # DOM quiet period needed
-    network_idle_threshold=0,     # Max pending requests (0 = all must complete)
-    animation_detection=True,     # Wait for animations to finish
-    strictness='normal',          # 'strict' | 'normal' | 'relaxed'
-    debug_mode=True               # Enable logging
+    timeout=10,                    # Max wait time (seconds)
+    mutation_rate_threshold=50,    # mutations/sec considered stable (allows animations)
+    network_idle_threshold=2,      # Max pending requests (allows background traffic)
+    animation_detection=True,      # Track CSS animations (non-blocking in normal mode)
+    strictness='normal',           # 'strict' | 'normal' | 'relaxed'
+    debug_mode=True                # Enable logging
 )
 
 driver = stabilize(driver, config=config)

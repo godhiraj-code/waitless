@@ -53,6 +53,7 @@ class StabilizationEngine:
         
 
         self._last_status: Optional[StabilityStatus] = None
+        self._last_browser_state: Optional[Dict[str, Any]] = None
         self._last_blocking_factors: Dict[str, Any] = {}
         self._timeline: list = []
         
@@ -175,6 +176,7 @@ class StabilizationEngine:
             status = self.evaluator.evaluate(browser_state, current_time)
             last_status = status
             self._last_status = status
+            self._last_browser_state = browser_state  # Store for diagnostics
             
             if status.is_stable:
                 self._debug(f"UI stable after {elapsed:.2f}s")
@@ -260,7 +262,7 @@ class StabilizationEngine:
                 'network_idle_threshold': self.config.network_idle_threshold,
                 'animation_detection': self.config.animation_detection,
             },
-            'last_status': self._last_status.to_dict() if self._last_status else None,
+            'last_status': self._last_browser_state,  # Raw browser state with mutation_rate, etc.
             'blocking_factors': self._last_blocking_factors,
             'timeline': self._timeline[-50:],
             'instrumented': self._instrumented,

@@ -116,14 +116,74 @@ class StabilizedWebDriver:
         return attr
     
     def _stabilized_find_element(self, *args, **kwargs) -> StabilizedWebElement:
-        """Find element and wrap it for stabilization."""
-        element = self._driver.find_element(*args, **kwargs)
-        return StabilizedWebElement(element, self._engine)
+        """
+        Find element with automatic waiting.
+        
+        This method:
+        1. Waits for page stability first
+        2. Tries to find the element
+        3. If element not found, retries until timeout
+        
+        This eliminates the need for explicit WebDriverWait in test code.
+        """
+        import time
+        from selenium.common.exceptions import NoSuchElementException
+        
+        timeout = self._engine.config.timeout
+        poll_interval = self._engine.config.poll_interval
+        start_time = time.time()
+        last_exception = None
+        
+        while (time.time() - start_time) < timeout:
+            # Wait for page stability first
+            try:
+                self._engine.wait_for_stability()
+            except Exception:
+                pass  # Continue trying to find element
+            
+            # Try to find the element
+            try:
+                element = self._driver.find_element(*args, **kwargs)
+                return StabilizedWebElement(element, self._engine)
+            except NoSuchElementException as e:
+                last_exception = e
+                # Element not found - wait and retry
+                time.sleep(poll_interval)
+        
+        # Timeout reached - raise the last exception
+        if last_exception:
+            raise last_exception
+        raise NoSuchElementException(f"Element not found within {timeout}s: {args}")
     
     def _stabilized_find_elements(self, *args, **kwargs) -> List[StabilizedWebElement]:
-        """Find elements and wrap them for stabilization."""
-        elements = self._driver.find_elements(*args, **kwargs)
-        return [StabilizedWebElement(el, self._engine) for el in elements]
+        """
+        Find elements with automatic waiting.
+        
+        Similar to find_element but returns list (may be empty).
+        """
+        import time
+        
+        timeout = self._engine.config.timeout
+        poll_interval = self._engine.config.poll_interval
+        start_time = time.time()
+        
+        while (time.time() - start_time) < timeout:
+            # Wait for stability first
+            try:
+                self._engine.wait_for_stability()
+            except Exception:
+                pass
+            
+            # Try to find elements
+            elements = self._driver.find_elements(*args, **kwargs)
+            if elements:
+                return [StabilizedWebElement(el, self._engine) for el in elements]
+            
+            # No elements found - wait and retry
+            time.sleep(poll_interval)
+        
+        # Return empty list if nothing found
+        return []
     
     @property
     def unwrapped(self) -> 'WebDriver':

@@ -127,3 +127,6 @@ dmypy.json
 
 # Build artifacts
 *.whl
+
+# Broken examples
+examples/demo_github.py

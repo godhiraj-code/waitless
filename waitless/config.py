@@ -22,18 +22,16 @@ class StabilizationConfig:
                  Consider lowering to 5s for faster feedback loops.
         
         dom_settle_time: Time (seconds) DOM must be quiet to be considered stable.
-                         Default 0.1s (100ms).
+                         Default 0.1s (100ms). This is a FALLBACK - mutation rate
+                         is the primary check for DOM stability.
+        
+        mutation_rate_threshold: Maximum mutations per second for DOM to be stable.
+                                 Default 50/sec. This allows animated sites (typewriter
+                                 effects ~30/sec) while catching loading bursts (100+/sec).
         
         network_idle_threshold: Maximum pending requests allowed for stability.
-                                Default 0 (all requests must complete).
-                                
-                                ⚠️ WARNING: Many apps have background traffic:
-                                - Analytics calls
-                                - Long polling  
-                                - Feature flags
-                                - WebSocket heartbeats
-                                
-                                If your tests timeout frequently, try setting this to 1-2.
+                                Default 2 (allows background analytics/polling).
+                                Set to 0 for strict mode if all requests must complete.
         
         animation_detection: Whether to wait for CSS animations/transitions.
                              Default True. Disable for apps with infinite animations.
@@ -42,9 +40,9 @@ class StabilizationConfig:
                           Default True in 'strict' mode.
         
         strictness: Overall strictness level.
-                    - 'strict': All signals must be stable (recommended)
-                    - 'normal': DOM + Network only (faster)
-                    - 'relaxed': DOM only (fastest, least reliable)
+                    - 'strict': All signals must be stable (recommended for CI)
+                    - 'normal': DOM + Network only (default)
+                    - 'relaxed': DOM only (fastest)
         
         debug_mode: Enable verbose logging for troubleshooting.
                     Default False.
@@ -58,7 +56,8 @@ class StabilizationConfig:
     
     timeout: float = 10.0
     dom_settle_time: float = 0.1
-    network_idle_threshold: int = 0
+    mutation_rate_threshold: float = 50.0  # mutations/sec - allows animations
+    network_idle_threshold: int = 2  # Allow background traffic
     animation_detection: bool = True
     layout_stability: bool = True
     strictness: StrictnessLevel = 'normal'
@@ -118,6 +117,7 @@ class StabilizationConfig:
         current = {
             'timeout': self.timeout,
             'dom_settle_time': self.dom_settle_time,
+            'mutation_rate_threshold': self.mutation_rate_threshold,
             'network_idle_threshold': self.network_idle_threshold,
             'animation_detection': self.animation_detection,
             'layout_stability': self.layout_stability,

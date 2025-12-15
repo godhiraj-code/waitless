@@ -154,11 +154,34 @@ class SignalEvaluator:
         )
     
     def _evaluate_dom(self, state: Dict[str, Any], current_time: float) -> Signal:
-        """Evaluate DOM mutation activity."""
-        last_mutation = state.get('last_mutation_time', 0)
-        time_since_mutation = (current_time * 1000) - last_mutation  # Convert to ms
-        threshold_ms = self.config.dom_settle_time * 1000
+        """
+        Evaluate DOM mutation activity using MUTATION RATE.
         
+        Key insight: Animated sites have steady ~30-50 mutations/sec (typewriter, particles).
+        Loading bursts have 100+ mutations/sec. We consider stable when rate is LOW, not zero.
+        
+        Primary check: mutation_rate <= threshold (50/sec default)
+        Fallback: time since last mutation (for older browsers)
+        """
+        mutation_rate = state.get('mutation_rate')
+        last_mutation = state.get('last_mutation_time', 0)
+        
+        # Primary: Use mutation rate if available
+        if mutation_rate is not None:
+            threshold = self.config.mutation_rate_threshold
+            is_stable = mutation_rate <= threshold
+            return Signal(
+                signal_type=SignalType.DOM_MUTATIONS,
+                state=SignalState.STABLE if is_stable else SignalState.UNSTABLE,
+                value=mutation_rate,
+                threshold=threshold,
+                is_mandatory=True,
+                details=f"Mutation rate: {mutation_rate:.0f}/sec (threshold: {threshold:.0f}/sec)",
+            )
+        
+        # Fallback: Use time since last mutation
+        time_since_mutation = (current_time * 1000) - last_mutation
+        threshold_ms = self.config.dom_settle_time * 1000
         is_stable = time_since_mutation >= threshold_ms
         
         return Signal(
@@ -187,9 +210,15 @@ class SignalEvaluator:
         )
     
     def _evaluate_animations(self, state: Dict[str, Any]) -> Signal:
-        """Evaluate CSS animation/transition activity."""
+        """
+        Evaluate CSS animation/transition activity.
+        
+        Only mandatory in 'strict' mode. In 'normal' and 'relaxed' modes,
+        animations are cosmetic and don't block interaction.
+        """
         active = state.get('active_animations', 0)
-        is_mandatory = self.config.strictness != 'relaxed'
+        # Only mandatory in strict mode - animations are usually cosmetic
+        is_mandatory = self.config.strictness == 'strict'
         is_stable = active == 0
         
         return Signal(
