@@ -6,7 +6,6 @@ Run with: pytest tests/integration/ -v
 """
 
 import os
-import time
 import pytest
 from pathlib import Path
 
@@ -112,12 +111,13 @@ class TestStabilizationBehavior:
         # Click button that loads content after delay
         driver.find_element(By.ID, "load-content-btn").click()
         
-        # The content should be visible after stabilization
-        # Give it a moment for DOM mutation
-        time.sleep(0.6)  # Content appears after 500ms
-        
-        content = driver.find_element(By.ID, "loaded-text")
-        assert "Content loaded" in content.unwrap().text
+        # The content becomes visible after the 'hidden' class is removed from parent.
+        # Use a CSS selector that only matches when NOT hidden.
+        # This will retry until the element matches (i.e., hidden class is removed).
+        container = driver.find_element(By.CSS_SELECTOR, "#delayed-content:not(.hidden)")
+        # Access inner element via the unwrapped container
+        content = container.unwrap().find_element(By.ID, "loaded-text")
+        assert "Content loaded" in content.text
     
     def test_waits_for_mutations_to_stop(self, driver, fixture_url):
         """Test waiting for DOM mutations to complete."""
@@ -128,9 +128,7 @@ class TestStabilizationBehavior:
         # Trigger mutations
         driver.find_element(By.ID, "mutate-btn").click()
         
-        # Wait for mutations to complete (5 mutations at 100ms each = 500ms)
-        time.sleep(0.7)
-        
+        # Waitless auto-waits for mutations to complete - no sleep needed!
         # Check that all mutations completed
         complete = driver.find_element(By.ID, "mutations-complete")
         assert "complete" in complete.unwrap().text.lower()

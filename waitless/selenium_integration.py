@@ -225,10 +225,25 @@ class SeleniumIntegration:
         Returns:
             StabilizedWebDriver that auto-waits before interactions
             
+        Raises:
+            TypeError: If driver is not a valid WebDriver instance
+            
         Note:
             The returned driver wraps the original but is not a true WebDriver.
             If you need the original for framework integration, use .unwrapped
         """
+        # Validate driver is a WebDriver-like object
+        if driver is None:
+            raise TypeError("driver cannot be None")
+        
+        required_attrs = ['execute_script', 'find_element', 'current_url']
+        missing = [attr for attr in required_attrs if not hasattr(driver, attr)]
+        if missing:
+            raise TypeError(
+                f"driver does not appear to be a valid WebDriver. "
+                f"Missing required attributes: {missing}"
+            )
+        
         driver_id = id(driver)
         
         if driver_id in self._wrapped_drivers:

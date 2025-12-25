@@ -344,7 +344,7 @@ Waitless gives Selenium users the reliability of Playwright without the rewrite.
 
 ---
 
-## Current Limitations (v0.2.0)
+## Current Limitations (v0.3.0)
 
 Being honest about what doesn't work yet:
 
@@ -354,7 +354,15 @@ Being honest about what doesn't work yet:
 - **No Shadow DOM** - MutationObserver can't see shadow roots
 - **Chrome-focused** - Tested primarily on Chromium
 
-### What's New in v0.2.0
+### What's New in v0.3.0
+
+- **Input validation** - Clear errors when invalid drivers are passed to `stabilize()`
+- **Better exception handling** - Specific Selenium exceptions instead of broad catches
+- **Comprehensive test coverage** - New tests for diagnostics and instrumentation modules
+- **Dynamic site support** - Relaxed mode with higher mutation thresholds for highly animated sites
+- **Fixed integration tests** - Removed all `time.sleep()` calls from test suite
+
+### What Was New in v0.2.0
 
 - **Mutation rate detection** - Uses 50 mutations/sec threshold instead of absolute DOM silence. Works with animated sites!
 - **Auto-retry find_element** - No more `WebDriverWait` needed! Elements are found automatically when they appear.

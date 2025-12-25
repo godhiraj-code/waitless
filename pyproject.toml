@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "waitless"
-version = "0.2.0"
+version = "0.3.0"
 description = "Eliminate explicit waits in UI automation by detecting true UI stability"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.9"
 authors = [
-    {name = "Dhiraj Das", email = "dhirajdas.66@gmail.com"}
+    {name = "Dhiraj Das", email = "dhirajdas.666@gmail.com"}
 ]
 keywords = [
     "selenium",
@@ -36,7 +36,7 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/godhiraj-code/waitless"
+Homepage = "https://www.dhirajdas.dev"
 Documentation = "https://github.com/godhiraj-code/waitless#readme"
 Repository = "https://github.com/godhiraj-code/waitless.git"
 Issues = "https://github.com/godhiraj-code/waitless/issues"

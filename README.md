@@ -157,7 +157,7 @@ Sample output:
 
 ### Network Threshold Warning
 
-The default `network_idle_threshold=0` means **all** network requests must complete.
+The default `network_idle_threshold=2` allows some background traffic.
 
 Many apps have background traffic that never stops:
 - Analytics calls
@@ -182,13 +182,15 @@ element = driver.find_element(By.ID, "button")
 original = element.unwrap()  # Gets the real WebElement
 ```
 
-## v0 Limitations
+## v0.3 Limitations
 
 - **Selenium only** - Playwright support planned for v1
 - **Sync only** - No async/await support yet
 - **Main frame only** - iframes not monitored
 - **No Shadow DOM** - MutationObserver doesn't see shadow roots
 - **No Service Workers** - SW network requests not intercepted
+
+See [CHANGELOG.md](CHANGELOG.md) for version history.
 
 ## API Reference
 

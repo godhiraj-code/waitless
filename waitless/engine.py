@@ -10,6 +10,21 @@ import threading
 import logging
 from typing import Optional, Dict, Any, TYPE_CHECKING
 
+# Import Selenium exceptions for specific error handling
+try:
+    from selenium.common.exceptions import (
+        WebDriverException,
+        JavascriptException,
+        NoSuchWindowException,
+    )
+    SELENIUM_AVAILABLE = True
+except ImportError:
+    # Fallback for when selenium is not installed
+    WebDriverException = Exception
+    JavascriptException = Exception
+    NoSuchWindowException = Exception
+    SELENIUM_AVAILABLE = False
+
 from .config import StabilizationConfig, DEFAULT_CONFIG
 from .signals import SignalEvaluator, StabilityStatus
 from .instrumentation import (
@@ -86,7 +101,8 @@ class StabilizationEngine:
         """Get current page URL safely."""
         try:
             return self.driver.current_url
-        except Exception:
+        except (WebDriverException, NoSuchWindowException) as e:
+            self._debug(f"Could not get current URL: {e}")
             return ""
     
     def _is_instrumentation_alive(self) -> bool:
@@ -99,7 +115,8 @@ class StabilizationEngine:
         try:
             result = self.driver.execute_script(CHECK_ALIVE_SCRIPT)
             return result is True
-        except Exception:
+        except (JavascriptException, WebDriverException, NoSuchWindowException) as e:
+            self._debug(f"Instrumentation check failed: {e}")
             return False
     
     def _inject_instrumentation(self) -> None:

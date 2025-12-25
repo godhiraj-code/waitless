@@ -105,10 +105,16 @@ def test_with_waitless():
     driver = create_driver()
     
     try:
-        # Enable waitless
-        config = StabilizationConfig(debug_mode=True)
+        # Enable waitless with relaxed mode for dynamic sites
+        # The site has continuous animations/mutations - relaxed mode tolerates this
+        config = StabilizationConfig(
+            timeout=15,
+            strictness='relaxed',        # Don't wait for animations to stop
+            mutation_rate_threshold=200,  # Tolerate more DOM activity
+            debug_mode=True
+        )
         driver = stabilize(driver, config=config)
-        print("\n✓ Waitless enabled")
+        print("\n✓ Waitless enabled (relaxed mode for dynamic site)")
         
         # Step 1: Load site
         print("\n→ Loading site...")
@@ -129,7 +135,17 @@ def test_with_waitless():
         # NO WebDriverWait needed - waitless handles it
         print("\n→ Clicking 'Read Article' in Latest Insights...")
         print("  (waitless auto-waits for popup to appear)")
+        
         read_article = driver.find_element(By.CSS_SELECTOR, ".blog-nudge-button")
+        
+        # Debug: Check if element is displayed
+        el = read_article.unwrap()
+        print(f"  DEBUG: Element found, displayed={el.is_displayed()}, text='{el.text}'")
+        
+        # Scroll element into view to ensure it's clickable
+        driver.unwrapped.execute_script("arguments[0].scrollIntoView({block: 'center'});", el)
+        time.sleep(0.3)  # Brief pause after scroll
+        
         read_article.click()  # ← Waitless auto-waits for stability
         print("  ✓ Read Article clicked")
         
