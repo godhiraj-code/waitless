@@ -1,5 +1,7 @@
 # Waitless
 
+[![CI](https://github.com/godhiraj-code/waitless/actions/workflows/ci.yml/badge.svg)](https://github.com/godhiraj-code/waitless/actions/workflows/ci.yml)
+
 **Zero-wait UI automation stabilization for Selenium**
 
 Eliminate explicit waits and sleeps by automatically detecting true UI stability.
