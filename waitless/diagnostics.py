@@ -24,71 +24,71 @@ class DiagnosticReport:
     def generate_text_report(self) -> str:
         """Generate a text-based diagnostic report."""
         lines = []
-        lines.append("╔" + "═" * 66 + "╗")
-        lines.append("║" + "WAITLESS STABILITY REPORT".center(66) + "║")
-        lines.append("╠" + "═" * 66 + "╣")
-        lines.append(f"║ Report generated at: {self.timestamp.strftime('%Y-%m-%d %H:%M:%S'):<43} ║")
+        lines.append("+-" + "-" * 66 + "-+")
+        lines.append("|" + "WAITLESS STABILITY REPORT".center(66) + "|")
+        lines.append("+-" + "-" * 66 + "-+")
+        lines.append(f"| Report generated at: {self.timestamp.strftime('%Y-%m-%d %H:%M:%S'):<43} |")
         
         config = self.diagnostics.get('config', {})
-        lines.append("╠" + "═" * 66 + "╣")
-        lines.append("║ CONFIGURATION:".ljust(67) + "║")
-        lines.append(f"║   Timeout: {config.get('timeout', 'N/A')}s".ljust(67) + "║")
-        lines.append(f"║   Strictness: {config.get('strictness', 'N/A')}".ljust(67) + "║")
-        lines.append(f"║   Network threshold: {config.get('network_idle_threshold', 'N/A')} pending requests".ljust(67) + "║")
-        lines.append(f"║   Animation detection: {config.get('animation_detection', 'N/A')}".ljust(67) + "║")
+        lines.append("+-" + "-" * 66 + "-+")
+        lines.append("| CONFIGURATION:".ljust(67) + "|")
+        lines.append(f"|   Timeout: {config.get('timeout', 'N/A')}s".ljust(67) + "|")
+        lines.append(f"|   Strictness: {config.get('strictness', 'N/A')}".ljust(67) + "|")
+        lines.append(f"|   Network threshold: {config.get('network_idle_threshold', 'N/A')} pending requests".ljust(67) + "|")
+        lines.append(f"|   Animation detection: {config.get('animation_detection', 'N/A')}".ljust(67) + "|")
         
         blocking = self.diagnostics.get('blocking_factors', {})
         if blocking:
-            lines.append("╠" + "═" * 66 + "╣")
-            lines.append("║ BLOCKING FACTORS:".ljust(67) + "║")
-            lines.append("║".ljust(67) + "║")
+            lines.append("+-" + "-" * 66 + "-+")
+            lines.append("| BLOCKING FACTORS:".ljust(67) + "|")
+            lines.append("|".ljust(67) + "|")
             
             pending = blocking.get('pending_requests', 0)
             if pending > 0:
-                lines.append("║ ⚠ NETWORK: {} request(s) still pending".format(pending).ljust(67) + "║")
+                lines.append("| [!] NETWORK: {} request(s) still pending".format(pending).ljust(67) + "|")
                 
                 details = blocking.get('pending_request_details', [])
                 for req in details[:5]:  # Show max 5
                     url = req.get('url', 'unknown')[:50]
                     started = req.get('startTime', 0)
-                    lines.append(f"║   → {req.get('type', 'unknown').upper()} {url}".ljust(67) + "║")
+                    lines.append(f"|   -> {req.get('type', 'unknown').upper()} {url}".ljust(67) + "|")
                 
                 if len(details) > 5:
-                    lines.append(f"║   ... and {len(details) - 5} more".ljust(67) + "║")
-                lines.append("║".ljust(67) + "║")
+                    lines.append(f"|   ... and {len(details) - 5} more".ljust(67) + "|")
+                lines.append("|".ljust(67) + "|")
             
             animations = blocking.get('active_animations', 0)
             if animations > 0:
-                lines.append(f"║ ⚠ ANIMATIONS: {animations} active animation(s)".ljust(67) + "║")
-                lines.append("║".ljust(67) + "║")
+                lines.append(f"| [!] ANIMATIONS: {animations} active animation(s)".ljust(67) + "|")
+                lines.append("|".ljust(67) + "|")
             
             if blocking.get('layout_shifting'):
-                lines.append("║ ⚠ LAYOUT: Elements are still moving".ljust(67) + "║")
-                lines.append("║".ljust(67) + "║")
+                lines.append("| [!] LAYOUT: Elements are still moving".ljust(67) + "|")
+                lines.append("|".ljust(67) + "|")
         
         status = self.diagnostics.get('last_status')
         if status:
-            lines.append("╠" + "═" * 66 + "╣")
-            lines.append("║ SIGNAL STATUS:".ljust(67) + "║")
+            lines.append("+-" + "-" * 66 + "-+")
+            lines.append("| SIGNAL STATUS:".ljust(67) + "|")
             
             for signal in status.get('signals', []):
-                state = "✓" if signal['state'] == 'STABLE' else "✗"
+                state = "[OK]" if signal['state'] == 'STABLE' else "[WAIT]"
                 mandatory = "[M]" if signal['mandatory'] else "[O]"
-                line = f"║   {state} {mandatory} {signal['type']}: {signal.get('details', 'N/A')}"
-                lines.append(line[:66].ljust(67) + "║")
+                line = f"|   {state} {mandatory} {signal['type']}: {signal.get('details', 'N/A')}"
+                lines.append(line[:66].ljust(67) + "|")
         
         timeline = self.diagnostics.get('timeline', [])
         if timeline:
-            lines.append("╠" + "═" * 66 + "╣")
-            lines.append("║ RECENT EVENTS (last 10):".ljust(67) + "║")
+            lines.append("+-" + "-" * 66 + "-+")
+            lines.append("| RECENT EVENTS (last 10):".ljust(67) + "|")
             
             for entry in timeline[-10:]:
                 time_str = str(entry.get('time', ''))[-6:]
                 msg = entry.get('message', '')[:50]
-                lines.append(f"║   [{time_str}] {msg}".ljust(67) + "║")
+                lines.append(f"|   [{time_str}] {msg}".ljust(67) + "|")
         
         lines.extend(self._generate_suggestions())
-        lines.append("╚" + "═" * 66 + "╝")
+        lines.append("+-" + "-" * 66 + "-+")
         
         return "\n".join(lines)
     

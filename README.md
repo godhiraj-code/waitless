@@ -141,18 +141,18 @@ python -m waitless doctor --file diagnostics.json
 
 Sample output:
 ```
-╔══════════════════════════════════════════════════════════════════╗
-║                    WAITLESS STABILITY REPORT                     ║
-╠══════════════════════════════════════════════════════════════════╣
-║ BLOCKING FACTORS:                                                ║
-║   ⚠ NETWORK: 2 request(s) still pending                         ║
-║   → GET /api/users                                               ║
-║   ⚠ ANIMATIONS: 1 active animation(s)                           ║
-╠══════════════════════════════════════════════════════════════════╣
-║ SUGGESTIONS:                                                     ║
-║   1. Set network_idle_threshold=2 for background traffic         ║
-║   2. Use animation_detection=False for infinite spinners         ║
-╚══════════════════════════════════════════════════════════════════╝
++--------------------------------------------------------------------+
+|                     WAITLESS STABILITY REPORT                      |
++--------------------------------------------------------------------+
+| BLOCKING FACTORS:                                                  |
+|   [!] NETWORK: 2 request(s) still pending                          |
+|   -> GET /api/users                                                |
+|   [!] ANIMATIONS: 1 active animation(s)                            |
++--------------------------------------------------------------------+
+| SUGGESTIONS:                                                       |
+|   1. Set network_idle_threshold=2 for background traffic           |
+|   2. Use animation_detection=False for infinite spinners           |
++--------------------------------------------------------------------+
 ```
 
 ## Important Notes
@@ -184,7 +184,7 @@ element = driver.find_element(By.ID, "button")
 original = element.unwrap()  # Gets the real WebElement
 ```
 
-## v0.3 Limitations
+## v0.3.2 Limitations
 
 - **Selenium only** - Playwright support planned for v1
 - **Sync only** - No async/await support yet
