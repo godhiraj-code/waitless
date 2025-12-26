@@ -169,18 +169,9 @@ class SignalEvaluator:
         # Primary: Use mutation rate if available
         if mutation_rate is not None:
             threshold = self.config.mutation_rate_threshold
-            rate_stable = mutation_rate <= threshold
-            
-            # Also check settle time to ensure we are quiet AFTER a mutation
-            time_since_mutation = (current_time * 1000) - last_mutation
-            threshold_ms = self.config.dom_settle_time * 1000
-            settle_stable = time_since_mutation >= threshold_ms
-            
-            is_stable = rate_stable and settle_stable
+            is_stable = mutation_rate <= threshold
             
             details = f"Mutation rate: {mutation_rate:.0f}/sec (threshold: {threshold:.0f}/sec)"
-            if not settle_stable:
-                details += f", but only {time_since_mutation:.0f}ms since last mutation (need {threshold_ms:.0f}ms)"
                 
             return Signal(
                 signal_type=SignalType.DOM_MUTATIONS,
