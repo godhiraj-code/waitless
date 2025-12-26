@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "waitless"
-version = "0.3.1"
+version = "0.3.2"
 description = "Eliminate explicit waits in UI automation by detecting true UI stability"
 readme = "README.md"
 license = {text = "MIT"}

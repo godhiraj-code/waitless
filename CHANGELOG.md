@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2025-12-26
+
+### Fixed
+- **Stability regression for animated sites** - Reverted strict quiet-period requirement. Stabilizes correctly on pages with constant low-rate mutations (e.g., particle effects).
+- **Unicode compatibility** - Replaced non-ASCII markers in diagnostics and demo scripts to prevent `UnicodeEncodeError` on Windows consoles.
+- **CI Artifacts** - Fixed matrix job conflicts by using unique artifact names for each Python version.
+- **CI Pipeline** - Switched to official `setup-chrome` action for more reliable browser testing on Ubuntu.
+
+---
+
 ## [0.3.1] - 2025-12-26
 
 ### Added
