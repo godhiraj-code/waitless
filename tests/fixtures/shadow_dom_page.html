@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Shadow DOM Stability Test</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 40px;
+            background: #f0f2f5;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            max-width: 600px;
+            margin: auto;
+        }
+
+        h1 {
+            color: #1a73e8;
+            margin-top: 0;
+        }
+
+        #trigger-btn {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        #trigger-btn:hover {
+            background: #1557b0;
+        }
+
+        .status-msg {
+            margin-top: 20px;
+            font-weight: bold;
+            color: #5f6368;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <h1>Waitless: Shadow DOM Support</h1>
+        <p>This page tests stability detection inside nested Shadow Roots.</p>
+        <button id="trigger-btn">Start Shadow Mutations</button>
+        <div id="shadow-host"></div>
+        <div id="status" class="status-msg">Ready</div>
+    </div>
+
+    <script>
+        const host = document.getElementById('shadow-host');
+        const shadow = host.attachShadow({ mode: 'open' });
+
+        const style = document.createElement('style');
+        style.textContent = `
+            .shadow-box { 
+                margin-top: 20px; 
+                padding: 15px; 
+                background: #e8f0fe; 
+                border-left: 5px solid #1a73e8;
+                border-radius: 4px;
+            }
+            .mutation-item { color: #188038; margin: 5px 0; font-family: monospace; }
+            .complete { color: #d93025; font-weight: bold; border-top: 1px solid #dadce0; padding-top: 10px; margin-top: 10px; }
+        `;
+        shadow.appendChild(style);
+
+        const container = document.createElement('div');
+        container.id = 'shadow-container';
+        container.className = 'shadow-box';
+        container.innerHTML = '<h3>Shadow Root Content</h3>';
+        shadow.appendChild(container);
+
+        document.getElementById('trigger-btn').onclick = () => {
+            const btn = document.getElementById('trigger-btn');
+            const status = document.getElementById('status');
+            btn.disabled = true;
+            status.textContent = 'Mutating Shadow DOM...';
+
+            let count = 0;
+            const interval = setInterval(() => {
+                const p = document.createElement('div');
+                p.className = 'mutation-item';
+                p.textContent = `> Detected mutation #${++count} at ${new Date().toLocaleTimeString()}`;
+                container.appendChild(p);
+
+                if (count >= 5) {
+                    clearInterval(interval);
+                    const done = document.createElement('div');
+                    done.id = 'shadow-complete';
+                    done.className = 'complete';
+                    done.textContent = '✓ STABILITY REACHED IN SHADOW DOM';
+                    container.appendChild(done);
+                    status.textContent = 'Stable';
+                    btn.disabled = false;
+                }
+            }, 100);
+        };
+    </script>
+</body>
+
+</html>

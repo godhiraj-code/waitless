@@ -71,6 +71,7 @@ INSTRUMENTATION_SCRIPT = """
         // Rolling window for mutation rate calculation
         _mutationTimestamps: [],
         _mutationWindowMs: 1000,  // 1 second window for rate calculation
+        _observedShadowRoots: new WeakSet(),
         
         _setupMutationObserver: function() {
             var self = this;
@@ -87,17 +88,77 @@ INSTRUMENTATION_SCRIPT = """
                     self._mutationTimestamps.shift();
                 }
                 
+                // Check for new shadow roots in added nodes
+                mutations.forEach(function(mutation) {
+                    mutation.addedNodes.forEach(function(node) {
+                        if (node.nodeType === 1) { // Element node
+                            self._observeShadowRoots(node);
+                        }
+                    });
+                });
+                
                 self._log('DOM mutation', { count: mutations.length, rate: self.getMutationRate() });
             });
             
-            observer.observe(document.documentElement || document.body, {
+            var config = {
                 childList: true,
                 subtree: true,
                 attributes: true,
                 characterData: true
-            });
+            };
             
+            observer.observe(document.documentElement || document.body, config);
             this._observers.push(observer);
+            
+            // Initial scan for shadow roots
+            this._observeShadowRoots(document);
+        },
+        
+        _observeShadowRoots: function(root) {
+            var self = this;
+            
+            // Function to recursively find and observe shadow roots
+            var walk = function(node) {
+                if (node.shadowRoot && !self._observedShadowRoots.has(node.shadowRoot)) {
+                    self._observedShadowRoots.add(node.shadowRoot);
+                    
+                    var observer = new MutationObserver(function(mutations) {
+                        var now = Date.now();
+                        self.lastMutationTime = now;
+                        self._mutationTimestamps.push(now);
+                        self._log('Shadow DOM mutation', { count: mutations.length });
+                        
+                        // Scan new nodes in shadow DOM for nested shadow roots
+                        mutations.forEach(function(mutation) {
+                            mutation.addedNodes.forEach(function(newNode) {
+                                if (newNode.nodeType === 1) walk(newNode);
+                            });
+                        });
+                    });
+                    
+                    observer.observe(node.shadowRoot, {
+                        childList: true,
+                        subtree: true,
+                        attributes: true,
+                        characterData: true
+                    });
+                    
+                    self._observers.push(observer);
+                    self._log('Observing shadow root', { host: node.tagName });
+                    
+                    // Recurse into the shadow root
+                    walk(node.shadowRoot);
+                }
+                
+                // Traverse children
+                var child = node.firstElementChild;
+                while (child) {
+                    walk(child);
+                    child = child.nextElementSibling;
+                }
+            };
+            
+            walk(root);
         },
         
         // Calculate mutations per second from rolling window
@@ -239,8 +300,26 @@ INSTRUMENTATION_SCRIPT = """
         },
         
         _checkLayoutStability: function() {
-            // Track key interactive elements
-            var elements = document.querySelectorAll('button, a, input, [onclick], [role="button"]');
+            // Track key interactive elements, including those in shadow DOM
+            var elements = [];
+            
+            var collectElements = function(root) {
+                var found = root.querySelectorAll('button, a, input, [onclick], [role="button"]');
+                for (var i = 0; i < found.length; i++) {
+                    elements.push(found[i]);
+                }
+                
+                // Recursively check shadow roots
+                var all = root.querySelectorAll('*');
+                for (var j = 0; j < all.length; j++) {
+                    if (all[j].shadowRoot) {
+                        collectElements(all[j].shadowRoot);
+                    }
+                }
+            };
+            
+            collectElements(document);
+            
             var isShifting = false;
             var self = this;
             

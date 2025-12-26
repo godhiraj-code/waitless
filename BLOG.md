@@ -125,7 +125,7 @@ What does it mean for a UI to be "stable"? I identified four key signals:
 ### 1. DOM Stability
 The DOM structure has stopped changing. No elements being added, removed, or modified.
 
-**How to detect:** `MutationObserver` watching the document root. Track time since last mutation.
+**How to detect:** `MutationObserver` watching the document root and recursively watching all **Shadow Roots**. Track time since last mutation.
 
 ### 2. Network Idle
 All AJAX requests have completed. No pending API calls.
@@ -351,8 +351,13 @@ Being honest about what doesn't work yet:
 - **Selenium only** - Playwright integration planned for v1 - contributions welcome
 - **Sync only** - No async/await support
 - **Main frame only** - iframes not monitored 
-- **No Shadow DOM** - MutationObserver can't see shadow roots
 - **Chrome-focused** - Tested primarily on Chromium
+
+### What's New in v0.3.1
+
+- **Shadow DOM support** - `MutationObserver` now sees inside shadow roots, ensuring stability in modern web apps using web components.
+- **Improved Signal Evaluation** - Fixed a race condition where stability was reported too early even during active mutations.
+- **Shadow DOM Integration Tests** - Added a full test suite for shadow DOM stability scenarios.
 
 ### What's New in v0.3.0
 

@@ -38,6 +38,18 @@ jobs:
         python -m pytest tests/integration/ -v --tb=short
       continue-on-error: true  # Integration tests may fail in CI without display
 
+    - name: Generate Shadow DOM Evidence
+      run: |
+        python tests/evidence/generate_evidence.py
+      continue-on-error: true
+
+    - name: Upload Evidence Screenshot
+      uses: actions/upload-artifact@v4
+      with:
+        name: shadow-dom-evidence
+        path: shadow_dom_evidence.png
+        if-no-files-found: warn
+
   lint:
     runs-on: ubuntu-latest
     steps:

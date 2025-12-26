@@ -54,7 +54,7 @@ Automation tests fail because interactions happen while the UI is still changing
 
 Waitless monitors the **entire page** for stability signals:
 
-- ✅ DOM mutation activity (MutationObserver)
+- ✅ DOM mutation activity (MutationObserver, including **Shadow DOM**)
 - ✅ Pending network requests (XHR/fetch interception)
 - ✅ CSS animations and transitions
 - ✅ Layout stability (element movement)
@@ -189,7 +189,6 @@ original = element.unwrap()  # Gets the real WebElement
 - **Selenium only** - Playwright support planned for v1
 - **Sync only** - No async/await support yet
 - **Main frame only** - iframes not monitored
-- **No Shadow DOM** - MutationObserver doesn't see shadow roots
 - **No Service Workers** - SW network requests not intercepted
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.
