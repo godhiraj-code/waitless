@@ -6,7 +6,7 @@
 
 Eliminate explicit waits and sleeps by automatically detecting true UI stability.
 
-[![PyCoder's Weekly](https://img.shields.io/badge/Featured%20in-PyCoder's%20Weekly-ffd43b?style=for-the-badge&logo=python&logoColor=3776ab)](https://pycoders.com/issues/714)
+
 
 ## Installation
 
