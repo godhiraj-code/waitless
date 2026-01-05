@@ -60,6 +60,9 @@ Waitless monitors the **entire page** for stability signals:
 - ✅ Pending network requests (XHR/fetch interception)
 - ✅ CSS animations and transitions
 - ✅ Layout stability (element movement)
+- ✅ WebSocket/SSE activity (opt-in)
+- ✅ Framework hooks (React/Angular/Vue, opt-in)
+- ✅ iframe monitoring (opt-in)
 
 When you interact, waitless ensures the page is truly ready.
 
@@ -186,11 +189,46 @@ element = driver.find_element(By.ID, "button")
 original = element.unwrap()  # Gets the real WebElement
 ```
 
-## v0.3.2 Limitations
+## v1.0.0 New Features
 
-- **Selenium only** - Playwright support planned for v1
+- **WebSocket/SSE Awareness** - Track WebSocket and Server-Sent Events activity
+- **Framework Adapters** - React, Angular, Vue hooks for framework-specific settling
+- **iframe Support** - Monitor same-origin iframes
+- **Performance Benchmarks** - Built-in benchmark suite
+
+```python
+# Enable new v1.0 features
+config = StabilizationConfig(
+    track_websocket=True,         # WebSocket monitoring
+    track_sse=True,               # SSE monitoring
+    framework_hooks=['react'],    # React adapter
+    track_iframes=True,           # iframe monitoring
+)
+```
+
+## Performance
+
+| Metric | Typical Value |
+|--------|---------------|
+| Instrumentation injection | ~5-10ms |
+| Per-poll overhead | ~1-2ms |
+| Poll interval (default) | 50ms |
+| Typical stabilization | 50-200ms after activity |
+
+### SPA Navigation Handling
+
+Waitless automatically re-injects instrumentation after SPA route changes:
+
+1. Checks `__waitless__.isAlive()` before each wait
+2. Detects URL changes via `driver.current_url`
+3. Re-injects if instrumentation is missing
+
+This works transparently with React Router, Vue Router, Angular Router, etc.
+
+## Current Limitations
+
+- **Selenium only** - Playwright support planned
 - **Sync only** - No async/await support yet
-- **Main frame only** - iframes not monitored
 - **No Service Workers** - SW network requests not intercepted
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.

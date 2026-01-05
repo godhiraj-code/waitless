@@ -11,7 +11,7 @@ INSTRUMENTATION_SCRIPT = """
     
     window.__waitless__ = {
         _initialized: true,
-        _version: '0.1.0',
+        _version: '1.0.0',
         
         // State tracking
         pendingRequests: 0,
@@ -19,6 +19,17 @@ INSTRUMENTATION_SCRIPT = """
         activeAnimations: 0,
         activeTransitions: 0,
         layoutShifting: false,
+        
+        // WebSocket/SSE tracking
+        activeWebSockets: 0,
+        activeSSEConnections: 0,
+        lastWebSocketActivity: 0,
+        lastSSEActivity: 0,
+        webSocketDetails: [],
+        sseDetails: [],
+        
+        // iframe tracking
+        iframeStatus: [],  // Status from child iframes
         
         // Timeline for diagnostics (circular buffer)
         timeline: [],
@@ -31,6 +42,10 @@ INSTRUMENTATION_SCRIPT = """
         config: {
             trackLayout: true,
             trackAnimations: true,
+            trackWebSocket: false,
+            trackSSE: false,
+            webSocketQuietTime: 500,  // ms of silence for stability
+            trackIframes: false,
         },
         
         // Lifecycle
@@ -38,6 +53,8 @@ INSTRUMENTATION_SCRIPT = """
         _originalFetch: null,
         _originalXHROpen: null,
         _originalXHRSend: null,
+        _originalWebSocket: null,
+        _originalEventSource: null,
         
         // ===== INITIALIZATION =====
         
@@ -47,6 +64,15 @@ INSTRUMENTATION_SCRIPT = """
             this._setupAnimationTracking();
             if (this.config.trackLayout) {
                 this._setupLayoutTracking();
+            }
+            if (this.config.trackWebSocket) {
+                this._setupWebSocketTracking();
+            }
+            if (this.config.trackSSE) {
+                this._setupSSETracking();
+            }
+            if (this.config.trackIframes) {
+                this._setupIframeTracking();
             }
             this._log('Waitless instrumentation initialized');
             return this;
@@ -350,6 +376,189 @@ INSTRUMENTATION_SCRIPT = """
             }
         },
         
+        // ===== WEBSOCKET TRACKING =====
+        
+        _setupWebSocketTracking: function() {
+            var self = this;
+            this._originalWebSocket = window.WebSocket;
+            
+            window.WebSocket = function(url, protocols) {
+                var ws = protocols 
+                    ? new self._originalWebSocket(url, protocols)
+                    : new self._originalWebSocket(url);
+                
+                self.activeWebSockets++;
+                self.webSocketDetails.push({
+                    url: url,
+                    openTime: Date.now(),
+                    state: 'connecting'
+                });
+                self._log('WebSocket connecting', { url: url });
+                
+                ws.addEventListener('open', function() {
+                    self.lastWebSocketActivity = Date.now();
+                    var detail = self.webSocketDetails.find(function(d) { return d.url === url; });
+                    if (detail) detail.state = 'open';
+                    self._log('WebSocket opened', { url: url });
+                });
+                
+                ws.addEventListener('message', function(e) {
+                    self.lastWebSocketActivity = Date.now();
+                    self._log('WebSocket message', { url: url, size: e.data ? e.data.length : 0 });
+                });
+                
+                ws.addEventListener('close', function() {
+                    self.activeWebSockets = Math.max(0, self.activeWebSockets - 1);
+                    var idx = self.webSocketDetails.findIndex(function(d) { return d.url === url; });
+                    if (idx > -1) self.webSocketDetails.splice(idx, 1);
+                    self._log('WebSocket closed', { url: url });
+                });
+                
+                ws.addEventListener('error', function() {
+                    self.activeWebSockets = Math.max(0, self.activeWebSockets - 1);
+                    var idx = self.webSocketDetails.findIndex(function(d) { return d.url === url; });
+                    if (idx > -1) self.webSocketDetails.splice(idx, 1);
+                    self._log('WebSocket error', { url: url });
+                });
+                
+                return ws;
+            };
+            
+            // Preserve prototype chain
+            window.WebSocket.prototype = this._originalWebSocket.prototype;
+            window.WebSocket.CONNECTING = this._originalWebSocket.CONNECTING;
+            window.WebSocket.OPEN = this._originalWebSocket.OPEN;
+            window.WebSocket.CLOSING = this._originalWebSocket.CLOSING;
+            window.WebSocket.CLOSED = this._originalWebSocket.CLOSED;
+        },
+        
+        // ===== SSE TRACKING =====
+        
+        _setupSSETracking: function() {
+            var self = this;
+            this._originalEventSource = window.EventSource;
+            
+            if (!this._originalEventSource) {
+                self._log('EventSource not supported in this browser');
+                return;
+            }
+            
+            window.EventSource = function(url, config) {
+                var es = config
+                    ? new self._originalEventSource(url, config)
+                    : new self._originalEventSource(url);
+                
+                self.activeSSEConnections++;
+                self.sseDetails.push({
+                    url: url,
+                    openTime: Date.now(),
+                    state: 'connecting'
+                });
+                self._log('SSE connecting', { url: url });
+                
+                es.addEventListener('open', function() {
+                    self.lastSSEActivity = Date.now();
+                    var detail = self.sseDetails.find(function(d) { return d.url === url; });
+                    if (detail) detail.state = 'open';
+                    self._log('SSE opened', { url: url });
+                });
+                
+                es.addEventListener('message', function(e) {
+                    self.lastSSEActivity = Date.now();
+                    self._log('SSE message', { url: url });
+                });
+                
+                es.addEventListener('error', function() {
+                    self.activeSSEConnections = Math.max(0, self.activeSSEConnections - 1);
+                    var idx = self.sseDetails.findIndex(function(d) { return d.url === url; });
+                    if (idx > -1) self.sseDetails.splice(idx, 1);
+                    self._log('SSE error/closed', { url: url });
+                });
+                
+                return es;
+            };
+            
+            window.EventSource.prototype = this._originalEventSource.prototype;
+            window.EventSource.CONNECTING = this._originalEventSource.CONNECTING;
+            window.EventSource.OPEN = this._originalEventSource.OPEN;
+            window.EventSource.CLOSED = this._originalEventSource.CLOSED;
+        },
+        
+        // ===== IFRAME TRACKING =====
+        
+        _setupIframeTracking: function() {
+            var self = this;
+            
+            // Observe for new iframes being added
+            var observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(m) {
+                    m.addedNodes.forEach(function(node) {
+                        if (node.tagName === 'IFRAME') {
+                            self._injectIntoIframe(node);
+                        }
+                    });
+                });
+            });
+            
+            observer.observe(document.body || document.documentElement, {
+                childList: true,
+                subtree: true
+            });
+            
+            this._observers.push(observer);
+            
+            // Inject into existing iframes
+            document.querySelectorAll('iframe').forEach(function(iframe) {
+                self._injectIntoIframe(iframe);
+            });
+            
+            this._log('iframe tracking initialized');
+        },
+        
+        _injectIntoIframe: function(iframe) {
+            var self = this;
+            
+            try {
+                var iframeDoc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+                
+                if (!iframeDoc) {
+                    self._log('Cannot access iframe (no document)', { src: iframe.src });
+                    return;
+                }
+                
+                // Check if already instrumented
+                if (iframe.contentWindow.__waitless__) {
+                    self._log('iframe already instrumented', { src: iframe.src });
+                    return;
+                }
+                
+                // Note: Full injection would require eval'ing the entire script
+                // For now, we track iframe load/ready state
+                self.iframeStatus.push({
+                    src: iframe.src || 'inline',
+                    loaded: iframeDoc.readyState === 'complete',
+                    accessible: true
+                });
+                
+                iframe.addEventListener('load', function() {
+                    self._log('iframe loaded', { src: iframe.src });
+                    var status = self.iframeStatus.find(function(s) { return s.src === (iframe.src || 'inline'); });
+                    if (status) status.loaded = true;
+                });
+                
+                self._log('iframe registered', { src: iframe.src });
+            } catch (e) {
+                // Cross-origin iframe - cannot access
+                self.iframeStatus.push({
+                    src: iframe.src || 'inline',
+                    loaded: false,
+                    accessible: false,
+                    error: 'cross-origin'
+                });
+                self._log('Cannot access iframe (cross-origin)', { src: iframe.src });
+            }
+        },
+        
         // ===== PUBLIC API =====
         
         getStatus: function() {
@@ -361,6 +570,13 @@ INSTRUMENTATION_SCRIPT = """
                 active_animations: this.activeAnimations + this.activeTransitions,
                 layout_shifting: this.layoutShifting,
                 pending_request_details: this.pendingRequestDetails.slice(),
+                // WebSocket/SSE status
+                active_websockets: this.activeWebSockets,
+                active_sse: this.activeSSEConnections,
+                last_websocket_activity: this.lastWebSocketActivity,
+                last_sse_activity: this.lastSSEActivity,
+                websocket_details: this.webSocketDetails.slice(),
+                sse_details: this.sseDetails.slice(),
                 timeline: this.timeline.slice(-20)
             };
         },
@@ -395,6 +611,12 @@ INSTRUMENTATION_SCRIPT = """
             }
             if (this._layoutCheckInterval) {
                 clearInterval(this._layoutCheckInterval);
+            }
+            if (this._originalWebSocket) {
+                window.WebSocket = this._originalWebSocket;
+            }
+            if (this._originalEventSource) {
+                window.EventSource = this._originalEventSource;
             }
             
             this._initialized = false;

@@ -72,10 +72,15 @@ def run_doctor(args):
     else:
         # Show usage instructions
         print("+-" + "-" * 66 + "-+")
-        print("|" + "WAITLESS DOCTOR".center(66) + "|")
+        print("|" + "WAITLESS DOCTOR v1.0".center(66) + "|")
         print("+-" + "-" * 66 + "-+")
         print("|".ljust(67) + "|")
         print("| The doctor command analyzes stability diagnostics.".ljust(67) + "|")
+        print("|".ljust(67) + "|")
+        print("| v1.0 FEATURES:".ljust(67) + "|")
+        print("|   - WebSocket/SSE tracking (track_websocket, track_sse)".ljust(67) + "|")
+        print("|   - Framework adapters (framework_hooks=['react','angular','vue'])".ljust(67) + "|")
+        print("|   - iframe monitoring (track_iframes)".ljust(67) + "|")
         print("|".ljust(67) + "|")
         print("| USAGE OPTIONS:".ljust(67) + "|")
         print("|".ljust(67) + "|")

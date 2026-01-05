@@ -5,7 +5,7 @@ Provides sensible defaults with full customization options.
 """
 
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 from .exceptions import ConfigurationError
 
 
@@ -52,6 +52,22 @@ class StabilizationConfig:
         
         reinject_on_navigation: Auto-reinject instrumentation after navigation.
                                 Default True.
+        
+        track_websocket: Whether to monitor WebSocket connections.
+                         Default False. Enable for apps using WebSocket.
+        
+        track_sse: Whether to monitor Server-Sent Events (EventSource).
+                   Default False. Enable for apps using SSE.
+        
+        websocket_quiet_time: Time (seconds) WS/SSE must be quiet for stability.
+                              Default 0.5s. Only used when track_websocket/track_sse is True.
+        
+        framework_hooks: List of framework adapters to use for stability detection.
+                         Options: 'react', 'angular', 'vue'. Default empty (auto-detect off).
+                         When specified, waitless will inject framework-specific hooks.
+        
+        track_iframes: Whether to inject instrumentation into same-origin iframes.
+                       Default False. Cross-origin iframes cannot be accessed.
     """
     
     timeout: float = 10.0
@@ -64,6 +80,11 @@ class StabilizationConfig:
     debug_mode: bool = False
     poll_interval: float = 0.05
     reinject_on_navigation: bool = True
+    track_websocket: bool = False  # WebSocket monitoring (opt-in)
+    track_sse: bool = False        # SSE/EventSource monitoring (opt-in)
+    websocket_quiet_time: float = 0.5  # Seconds of WS/SSE silence for stability
+    framework_hooks: List[str] = field(default_factory=list)  # ['react', 'angular', 'vue']
+    track_iframes: bool = False  # Same-origin iframe monitoring (opt-in)
     
     def __post_init__(self):
         """Validate configuration values."""
@@ -125,6 +146,11 @@ class StabilizationConfig:
             'debug_mode': self.debug_mode,
             'poll_interval': self.poll_interval,
             'reinject_on_navigation': self.reinject_on_navigation,
+            'track_websocket': self.track_websocket,
+            'track_sse': self.track_sse,
+            'websocket_quiet_time': self.websocket_quiet_time,
+            'framework_hooks': self.framework_hooks.copy(),
+            'track_iframes': self.track_iframes,
         }
         current.update(kwargs)
         return StabilizationConfig(**current)

@@ -23,6 +23,8 @@ class SignalType(Enum):
     CSS_TRANSITIONS = auto()
     LAYOUT_SHIFT = auto()
     RAF_ACTIVITY = auto()
+    WEBSOCKET_ACTIVITY = auto()
+    SSE_ACTIVITY = auto()
 
 
 class SignalState(Enum):
@@ -140,6 +142,15 @@ class SignalEvaluator:
             layout_signal = self._evaluate_layout(browser_state)
             signals.append(layout_signal)
         
+        # WebSocket/SSE signals (opt-in)
+        if self.config.track_websocket:
+            ws_signal = self._evaluate_websocket(browser_state, current_time)
+            signals.append(ws_signal)
+        
+        if self.config.track_sse:
+            sse_signal = self._evaluate_sse(browser_state, current_time)
+            signals.append(sse_signal)
+        
         is_stable = all(
             s.is_stable for s in signals if s.is_mandatory
         )
@@ -244,4 +255,54 @@ class SignalEvaluator:
             threshold=False,
             is_mandatory=self.config.strictness == 'strict',
             details="Layout shifting detected" if is_shifting else "Layout stable",
+        )
+    
+    def _evaluate_websocket(self, state: Dict[str, Any], current_time: float) -> Signal:
+        """
+        Evaluate WebSocket activity.
+        
+        WebSocket signals are stable when no recent activity (messages) detected.
+        Open connections that are idle are considered stable (they're just 'chilling').
+        """
+        active_ws = state.get('active_websockets', 0)
+        last_activity = state.get('last_websocket_activity', 0)
+        
+        quiet_time_ms = self.config.websocket_quiet_time * 1000
+        time_since_activity = (current_time * 1000) - last_activity if last_activity else float('inf')
+        
+        # Stable if no recent activity (idle connections are OK)
+        is_stable = time_since_activity >= quiet_time_ms
+        
+        return Signal(
+            signal_type=SignalType.WEBSOCKET_ACTIVITY,
+            state=SignalState.STABLE if is_stable else SignalState.UNSTABLE,
+            value={'active': active_ws, 'time_since_activity_ms': time_since_activity},
+            threshold=quiet_time_ms,
+            is_mandatory=True,  # Mandatory when enabled
+            details=f"{active_ws} WebSocket(s), last activity {time_since_activity:.0f}ms ago",
+        )
+    
+    def _evaluate_sse(self, state: Dict[str, Any], current_time: float) -> Signal:
+        """
+        Evaluate Server-Sent Events (SSE) activity.
+        
+        SSE signals are stable when no recent events received.
+        Open connections waiting for events are considered stable.
+        """
+        active_sse = state.get('active_sse', 0)
+        last_activity = state.get('last_sse_activity', 0)
+        
+        quiet_time_ms = self.config.websocket_quiet_time * 1000
+        time_since_activity = (current_time * 1000) - last_activity if last_activity else float('inf')
+        
+        # Stable if no recent activity
+        is_stable = time_since_activity >= quiet_time_ms
+        
+        return Signal(
+            signal_type=SignalType.SSE_ACTIVITY,
+            state=SignalState.STABLE if is_stable else SignalState.UNSTABLE,
+            value={'active': active_sse, 'time_since_activity_ms': time_since_activity},
+            threshold=quiet_time_ms,
+            is_mandatory=True,  # Mandatory when enabled
+            details=f"{active_sse} SSE connection(s), last activity {time_since_activity:.0f}ms ago",
         )

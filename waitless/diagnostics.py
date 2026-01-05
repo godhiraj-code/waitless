@@ -65,6 +65,32 @@ class DiagnosticReport:
             if blocking.get('layout_shifting'):
                 lines.append("| [!] LAYOUT: Elements are still moving".ljust(67) + "|")
                 lines.append("|".ljust(67) + "|")
+            
+            # WebSocket connections
+            ws_count = blocking.get('active_websockets', 0)
+            if ws_count > 0:
+                lines.append(f"| [i] WEBSOCKET: {ws_count} active connection(s)".ljust(67) + "|")
+                ws_details = blocking.get('websocket_details', [])
+                for ws in ws_details[:3]:
+                    url = ws.get('url', 'unknown')[:45]
+                    state = ws.get('state', 'unknown')
+                    lines.append(f"|   -> {state.upper()} {url}".ljust(67) + "|")
+                if len(ws_details) > 3:
+                    lines.append(f"|   ... and {len(ws_details) - 3} more".ljust(67) + "|")
+                lines.append("|".ljust(67) + "|")
+            
+            # SSE connections
+            sse_count = blocking.get('active_sse', 0)
+            if sse_count > 0:
+                lines.append(f"| [i] SSE: {sse_count} active connection(s)".ljust(67) + "|")
+                sse_details = blocking.get('sse_details', [])
+                for sse in sse_details[:3]:
+                    url = sse.get('url', 'unknown')[:45]
+                    state = sse.get('state', 'unknown')
+                    lines.append(f"|   -> {state.upper()} {url}".ljust(67) + "|")
+                if len(sse_details) > 3:
+                    lines.append(f"|   ... and {len(sse_details) - 3} more".ljust(67) + "|")
+                lines.append("|".ljust(67) + "|")
         
         status = self.diagnostics.get('last_status')
         if status:

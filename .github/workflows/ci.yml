@@ -39,6 +39,11 @@ jobs:
       run: |
         python -m pytest tests/integration/ -v --tb=short
 
+    - name: Test v1.0 Features
+      run: |
+        python -c "from waitless.adapters import get_available_adapters; print('Adapters:', get_available_adapters())"
+        python -c "from waitless import StabilizationConfig; c = StabilizationConfig(track_websocket=True, framework_hooks=['react']); print('v1.0 config:', c.track_websocket, c.framework_hooks)"
+
     - name: Generate Shadow DOM Evidence
       run: |
         python tests/evidence/generate_evidence.py
@@ -63,4 +68,6 @@ jobs:
 
     - name: Check imports
       run: |
-        python -c "import waitless; print(f'✓ waitless {waitless.__version__} imports successfully')"
+        python -c "import waitless; print(f'waitless {waitless.__version__} imports successfully')"
+        python -c "from waitless.adapters import ReactAdapter, AngularAdapter, VueAdapter; print('Framework adapters OK')"
+
