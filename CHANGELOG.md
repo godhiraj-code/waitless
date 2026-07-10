@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - Unreleased
+
+### Fixed
+- Propagate Python stabilization options into browser instrumentation before it initializes.
+- Count individual DOM mutation records, including Shadow DOM mutations.
+- Execute configured React, Angular, and Vue adapter detection/status hooks.
+- Reconfigure signal evaluation when an existing wrapped driver receives new settings.
+- Preserve Selenium `find_elements()` semantics and propagate stabilization failures.
+- Stabilize after wrapped navigation methods and avoid retaining discarded drivers.
+- Redact URL queries/fragments and align diagnostics output with its documented API.
+- Install Selenium as a runtime dependency and correct misleading documentation.
+
 ## [1.0.0] - 2026-01-05
 
 ### Added

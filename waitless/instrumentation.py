@@ -3,7 +3,8 @@ JavaScript instrumentation for browser-side stability monitoring.
 """
 
 INSTRUMENTATION_SCRIPT = """
-(function() {
+(function(suppliedConfig) {
+    suppliedConfig = suppliedConfig || {};
     // Avoid re-initialization
     if (window.__waitless__ && window.__waitless__._initialized) {
         return window.__waitless__;
@@ -11,7 +12,7 @@ INSTRUMENTATION_SCRIPT = """
     
     window.__waitless__ = {
         _initialized: true,
-        _version: '1.0.0',
+        _version: '1.0.1',
         
         // State tracking
         pendingRequests: 0,
@@ -39,14 +40,15 @@ INSTRUMENTATION_SCRIPT = """
         pendingRequestDetails: [],
         
         // Configuration (updated from Python)
-        config: {
+        config: Object.assign({
             trackLayout: true,
             trackAnimations: true,
             trackWebSocket: false,
             trackSSE: false,
             webSocketQuietTime: 500,  // ms of silence for stability
             trackIframes: false,
-        },
+            redactQueryStrings: true
+        }, suppliedConfig),
         
         // Lifecycle
         _observers: [],
@@ -61,7 +63,9 @@ INSTRUMENTATION_SCRIPT = """
         init: function() {
             this._setupMutationObserver();
             this._setupNetworkInterceptors();
-            this._setupAnimationTracking();
+            if (this.config.trackAnimations) {
+                this._setupAnimationTracking();
+            }
             if (this.config.trackLayout) {
                 this._setupLayoutTracking();
             }
@@ -98,21 +102,26 @@ INSTRUMENTATION_SCRIPT = """
         _mutationTimestamps: [],
         _mutationWindowMs: 1000,  // 1 second window for rate calculation
         _observedShadowRoots: new WeakSet(),
+
+        _recordMutations: function(mutations, label) {
+            var now = Date.now();
+            this.lastMutationTime = now;
+            // MutationObserver callbacks can contain many MutationRecords. Count
+            // each record, not merely each callback invocation.
+            for (var i = 0; i < mutations.length; i++) {
+                this._mutationTimestamps.push(now);
+            }
+            var cutoff = now - this._mutationWindowMs;
+            while (this._mutationTimestamps.length > 0 && this._mutationTimestamps[0] < cutoff) {
+                this._mutationTimestamps.shift();
+            }
+            this._log(label, { count: mutations.length, rate: this.getMutationRate() });
+        },
         
         _setupMutationObserver: function() {
             var self = this;
             var observer = new MutationObserver(function(mutations) {
-                var now = Date.now();
-                self.lastMutationTime = now;
-                
-                // Add to rolling window
-                self._mutationTimestamps.push(now);
-                
-                // Remove old timestamps outside the window
-                var cutoff = now - self._mutationWindowMs;
-                while (self._mutationTimestamps.length > 0 && self._mutationTimestamps[0] < cutoff) {
-                    self._mutationTimestamps.shift();
-                }
+                self._recordMutations(mutations, 'DOM mutation');
                 
                 // Check for new shadow roots in added nodes
                 mutations.forEach(function(mutation) {
@@ -122,8 +131,6 @@ INSTRUMENTATION_SCRIPT = """
                         }
                     });
                 });
-                
-                self._log('DOM mutation', { count: mutations.length, rate: self.getMutationRate() });
             });
             
             var config = {
@@ -149,10 +156,7 @@ INSTRUMENTATION_SCRIPT = """
                     self._observedShadowRoots.add(node.shadowRoot);
                     
                     var observer = new MutationObserver(function(mutations) {
-                        var now = Date.now();
-                        self.lastMutationTime = now;
-                        self._mutationTimestamps.push(now);
-                        self._log('Shadow DOM mutation', { count: mutations.length });
+                        self._recordMutations(mutations, 'Shadow DOM mutation');
                         
                         // Scan new nodes in shadow DOM for nested shadow roots
                         mutations.forEach(function(mutation) {
@@ -249,8 +253,14 @@ INSTRUMENTATION_SCRIPT = """
                 return self._originalXHRSend.apply(this, arguments);
             };
         },
+
+        _redactUrl: function(url) {
+            var value = String(url || 'unknown');
+            return this.config.redactQueryStrings ? value.split(/[?#]/, 1)[0] : value;
+        },
         
         _requestStarted: function(url, type) {
+            url = this._redactUrl(url);
             this.pendingRequests++;
             this.pendingRequestDetails.push({
                 url: url,
@@ -261,6 +271,7 @@ INSTRUMENTATION_SCRIPT = """
         },
         
         _requestEnded: function(url, type, status) {
+            url = this._redactUrl(url);
             this.pendingRequests = Math.max(0, this.pendingRequests - 1);
             
             // Remove from pending details
@@ -577,6 +588,7 @@ INSTRUMENTATION_SCRIPT = """
                 last_sse_activity: this.lastSSEActivity,
                 websocket_details: this.webSocketDetails.slice(),
                 sse_details: this.sseDetails.slice(),
+                iframe_status: this.iframeStatus.slice(),
                 timeline: this.timeline.slice(-20)
             };
         },
@@ -625,7 +637,7 @@ INSTRUMENTATION_SCRIPT = """
     };
     
     return window.__waitless__.init();
-})();
+})(arguments[0]);
 """
 
 # Script to check if instrumentation is alive

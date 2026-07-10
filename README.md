@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/godhiraj-code/waitless/actions/workflows/ci.yml/badge.svg)](https://github.com/godhiraj-code/waitless/actions/workflows/ci.yml)
 
-**Zero-wait UI automation stabilization for Selenium**
+**Automatic UI stabilization for Selenium**
 
-Eliminate explicit waits and sleeps by automatically detecting true UI stability.
+Reduce explicit waits and sleeps by automatically evaluating multiple UI stability signals.
 
 
 
@@ -62,7 +62,7 @@ Waitless monitors the **entire page** for stability signals:
 - ✅ Layout stability (element movement)
 - ✅ WebSocket/SSE activity (opt-in)
 - ✅ Framework hooks (React/Angular/Vue, opt-in)
-- ✅ iframe monitoring (opt-in)
+- ✅ Same-origin iframe load readiness (opt-in; not full child-frame signal injection)
 
 When you interact, waitless ensures the page is truly ready.
 
@@ -135,7 +135,7 @@ try:
     driver.find_element(By.ID, "slow-button").click()
 except StabilizationTimeout as e:
     diagnostics = get_diagnostics(driver)
-    print_report(engine)  # Print detailed report
+    print_report(diagnostics)  # Print detailed report
 ```
 
 ### CLI Doctor Command
@@ -210,20 +210,26 @@ config = StabilizationConfig(
 
 | Metric | Typical Value |
 |--------|---------------|
-| Instrumentation injection | ~5-10ms |
-| Per-poll overhead | ~1-2ms |
+| Instrumentation injection | Environment-dependent; run `python -m benchmarks.overhead_test` |
+| Per-poll overhead | Environment-dependent; run the bundled benchmark |
 | Poll interval (default) | 50ms |
 | Typical stabilization | 50-200ms after activity |
 
-### SPA Navigation Handling
+### Navigation Handling
 
-Waitless automatically re-injects instrumentation after SPA route changes:
+Wrapped `get()`, `refresh()`, `back()`, and `forward()` wait after Selenium's
+synchronous navigation call returns. For SPA route changes initiated by page
+JavaScript, Waitless validates/re-injects instrumentation on the next wait:
 
 1. Checks `__waitless__.isAlive()` before each wait
 2. Detects URL changes via `driver.current_url`
 3. Re-injects if instrumentation is missing
 
-This works transparently with React Router, Vue Router, Angular Router, etc.
+This does not observe routes continuously, and cross-origin iframe internals remain
+outside the browser same-origin boundary.
+
+`find_elements()` keeps Selenium's immediate-empty lookup semantics: after the
+page-stability wait, it performs one lookup and returns `[]` when there are no matches.
 
 ## Current Limitations
 

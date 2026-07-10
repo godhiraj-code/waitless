@@ -41,6 +41,12 @@ class FrameworkAdapter(ABC):
         """
         pass
     
+    @property
+    @abstractmethod
+    def uninstall_script(self) -> str:
+        """JavaScript that restores every function patched by this adapter."""
+        pass
+
     @abstractmethod
     def get_status_script(self) -> str:
         """
