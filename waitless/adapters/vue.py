@@ -57,34 +57,53 @@ class VueAdapter(FrameworkAdapter):
             };
             
             var hook = window.__VUE_DEVTOOLS_GLOBAL_HOOK__;
+            var originals = window.__waitless__._vueOriginals = {};
             if (hook) {
-                // Vue 3 DevTools hook
-                hook.on && hook.on('component:updated', function() {
-                    window.__waitless__.framework.vue.lastUpdateTime = Date.now();
-                    window.__waitless__.framework.vue.isSettled = false;
-                    window.__waitless__._log('Vue component updated');
-                    
-                    setTimeout(function() {
-                        window.__waitless__.framework.vue.isSettled = true;
-                    }, 50);
-                });
-                
+                // Vue 3 DevTools hook. Reuse a stable handler if the hook has no off().
+                if (hook.on) {
+                    var updateHandler = hook.__waitlessVueUpdateHandler;
+                    if (!updateHandler) {
+                        updateHandler = function() {
+                            var vue = window.__waitless__ && window.__waitless__.framework && window.__waitless__.framework.vue;
+                            if (!vue) return;
+                            vue.lastUpdateTime = Date.now();
+                            vue.isSettled = false;
+                            window.__waitless__._log('Vue component updated');
+
+                            setTimeout(function() {
+                                var current = window.__waitless__ && window.__waitless__.framework && window.__waitless__.framework.vue;
+                                if (current) current.isSettled = true;
+                            }, 50);
+                        };
+                        hook.__waitlessVueUpdateHandler = updateHandler;
+                        hook.on('component:updated', updateHandler);
+                    }
+                    originals.hook = hook;
+                    originals.updateHandler = updateHandler;
+                }
+
                 // Vue 2 compatibility
                 if (hook.Vue && hook.Vue.nextTick) {
                     var originalNextTick = hook.Vue.nextTick;
+                    originals.vue = hook.Vue;
+                    originals.nextTick = originalNextTick;
                     hook.Vue.nextTick = function(callback, context) {
-                        window.__waitless__.framework.vue.pendingTicks++;
-                        window.__waitless__.framework.vue.isSettled = false;
-                        
+                        var vue = window.__waitless__ && window.__waitless__.framework && window.__waitless__.framework.vue;
+                        if (vue) {
+                            vue.pendingTicks++;
+                            vue.isSettled = false;
+                        }
+
                         var wrappedCallback = function() {
-                            window.__waitless__.framework.vue.pendingTicks--;
-                            window.__waitless__.framework.vue.lastUpdateTime = Date.now();
-                            if (window.__waitless__.framework.vue.pendingTicks === 0) {
-                                window.__waitless__.framework.vue.isSettled = true;
+                            var current = window.__waitless__ && window.__waitless__.framework && window.__waitless__.framework.vue;
+                            if (current) {
+                                current.pendingTicks--;
+                                current.lastUpdateTime = Date.now();
+                                if (current.pendingTicks === 0) current.isSettled = true;
                             }
-                            if (callback) callback.apply(this, arguments);
+                            if (callback) return callback.apply(this, arguments);
                         };
-                        
+
                         return originalNextTick.call(this, wrappedCallback, context);
                     };
                 }
@@ -96,6 +115,26 @@ class VueAdapter(FrameworkAdapter):
         })();
         """
     
+    @property
+    def uninstall_script(self) -> str:
+        return """
+        (function() {
+            if (!window.__waitless__) return true;
+            var originals = window.__waitless__._vueOriginals || {};
+            if (originals.vue && originals.nextTick) {
+                originals.vue.nextTick = originals.nextTick;
+            }
+            if (originals.hook && originals.updateHandler && originals.hook.off) {
+                originals.hook.off('component:updated', originals.updateHandler);
+                delete originals.hook.__waitlessVueUpdateHandler;
+            }
+            if (window.__waitless__.framework) delete window.__waitless__.framework.vue;
+            delete window.__waitless__._vueOriginals;
+            delete window.__waitless__._vueHooked;
+            return true;
+        })();
+        """
+
     def get_status_script(self) -> str:
         return """
         (function() {

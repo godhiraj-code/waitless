@@ -107,6 +107,12 @@ class StabilizationConfig:
             raise ConfigurationError(
                 f"dom_settle_time must be non-negative, got {self.dom_settle_time}"
             )
+
+        if self.mutation_rate_threshold < 0:
+            raise ConfigurationError(
+                "mutation_rate_threshold must be non-negative, "
+                f"got {self.mutation_rate_threshold}"
+            )
         
         if self.network_idle_threshold < 0:
             raise ConfigurationError(
@@ -122,11 +128,28 @@ class StabilizationConfig:
             raise ConfigurationError(
                 f"poll_interval ({self.poll_interval}) cannot exceed timeout ({self.timeout})"
             )
+
+        if self.websocket_quiet_time < 0:
+            raise ConfigurationError(
+                "websocket_quiet_time must be non-negative, "
+                f"got {self.websocket_quiet_time}"
+            )
         
         if self.strictness not in ('strict', 'normal', 'relaxed'):
             raise ConfigurationError(
                 f"strictness must be 'strict', 'normal', or 'relaxed', got '{self.strictness}'"
             )
+
+        supported_hooks = {'react', 'angular', 'vue'}
+        normalized_hooks = []
+        for hook in self.framework_hooks:
+            if not isinstance(hook, str) or hook.lower() not in supported_hooks:
+                raise ConfigurationError(
+                    f"unsupported framework hook {hook!r}; expected one of "
+                    f"{sorted(supported_hooks)}"
+                )
+            normalized_hooks.append(hook.lower())
+        self.framework_hooks = list(dict.fromkeys(normalized_hooks))
     
     def with_overrides(self, **kwargs) -> 'StabilizationConfig':
         """

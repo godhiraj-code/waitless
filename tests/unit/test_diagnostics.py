@@ -150,6 +150,39 @@ class TestDiagnosticReport:
         # Should only show last 10 events
         assert "RECENT EVENTS (last 10)" in text
 
+    def test_engine_diagnostics_redact_url_queries_and_fragments(self):
+        from waitless.engine import StabilizationEngine
+
+        engine = StabilizationEngine(driver=object())
+        engine._last_browser_state = {
+            'pending_request_details': [
+                {'url': 'https://user:secret@example.test/api?token=secret#fragment', 'type': 'fetch'}
+            ],
+            'websocket_details': [
+                {'url': 'wss://user:secret@example.test/socket?access_token=secret', 'state': 'open'}
+            ],
+            'sse_details': [
+                {'url': 'https://user:secret@example.test/events?token=secret', 'state': 'open'}
+            ],
+            'iframe_status': [
+                {'src': 'https://user:secret@example.test/frame?token=secret', 'loaded': True}
+            ],
+            'timeline': [
+                {
+                    'message': 'Request started',
+                    'data': {'url': 'https://user:secret@example.test/data?email=user@example.test'},
+                }
+            ],
+        }
+
+        diagnostics = engine.get_diagnostics()
+
+        assert diagnostics['browser_state']['pending_request_details'][0]['url'] == 'https://example.test/api'
+        assert diagnostics['browser_state']['websocket_details'][0]['url'] == 'wss://example.test/socket'
+        assert diagnostics['browser_state']['sse_details'][0]['url'] == 'https://example.test/events'
+        assert diagnostics['browser_state']['iframe_status'][0]['src'] == 'https://example.test/frame'
+        assert diagnostics['browser_state']['timeline'][0]['data']['url'] == 'https://example.test/data'
+
 
 class TestHelperFunctions:
     """Test module-level helper functions."""

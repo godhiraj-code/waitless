@@ -10,8 +10,9 @@ This may affect equality checks or isinstance() calls in test code.
 
 import functools
 import logging
+import weakref
 from typing import Optional, Any, List, Dict, TYPE_CHECKING
-from weakref import WeakValueDictionary
+from weakref import WeakKeyDictionary
 
 from .config import StabilizationConfig, DEFAULT_CONFIG
 from .engine import StabilizationEngine
@@ -23,9 +24,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger('waitless')
-
-
-_stabilized_drivers: WeakValueDictionary = WeakValueDictionary()
 
 
 class StabilizedWebElement:
@@ -112,8 +110,20 @@ class StabilizedWebDriver:
             return self._stabilized_find_element
         elif name == 'find_elements':
             return self._stabilized_find_elements
+        elif name in {'get', 'refresh', 'back', 'forward'}:
+            return self._create_stabilized_navigation(attr, name)
         
         return attr
+
+    def _create_stabilized_navigation(self, method: callable, name: str) -> callable:
+        """Wait for the destination document after a synchronous navigation."""
+        @functools.wraps(method)
+        def stabilized_navigation(*args, **kwargs):
+            result = method(*args, **kwargs)
+            self._engine.reset()
+            self._engine.wait_for_stability()
+            return result
+        return stabilized_navigation
     
     def _stabilized_find_element(self, *args, **kwargs) -> StabilizedWebElement:
         """
@@ -131,23 +141,19 @@ class StabilizedWebDriver:
         
         timeout = self._engine.config.timeout
         poll_interval = self._engine.config.poll_interval
-        start_time = time.time()
         last_exception = None
+
+        # Instrumentation/stabilization failures are part of the public contract:
+        # do not hide them behind element lookup retries.
+        self._engine.wait_for_stability()
+        start_time = time.monotonic()
         
-        while (time.time() - start_time) < timeout:
-            # Wait for page stability first
-            try:
-                self._engine.wait_for_stability()
-            except Exception:
-                pass  # Continue trying to find element
-            
-            # Try to find the element
+        while (time.monotonic() - start_time) < timeout:
             try:
                 element = self._driver.find_element(*args, **kwargs)
                 return StabilizedWebElement(element, self._engine)
             except NoSuchElementException as e:
                 last_exception = e
-                # Element not found - wait and retry
                 time.sleep(poll_interval)
         
         # Timeout reached - raise the last exception
@@ -161,29 +167,11 @@ class StabilizedWebDriver:
         
         Similar to find_element but returns list (may be empty).
         """
-        import time
-        
-        timeout = self._engine.config.timeout
-        poll_interval = self._engine.config.poll_interval
-        start_time = time.time()
-        
-        while (time.time() - start_time) < timeout:
-            # Wait for stability first
-            try:
-                self._engine.wait_for_stability()
-            except Exception:
-                pass
-            
-            # Try to find elements
-            elements = self._driver.find_elements(*args, **kwargs)
-            if elements:
-                return [StabilizedWebElement(el, self._engine) for el in elements]
-            
-            # No elements found - wait and retry
-            time.sleep(poll_interval)
-        
-        # Return empty list if nothing found
-        return []
+        # Match Selenium's contract: one lookup and an immediate empty list when
+        # there are no matches. Only the page-stability wait is added.
+        self._engine.wait_for_stability()
+        elements = self._driver.find_elements(*args, **kwargs)
+        return [StabilizedWebElement(el, self._engine) for el in elements]
     
     @property
     def unwrapped(self) -> 'WebDriver':
@@ -206,9 +194,13 @@ class SeleniumIntegration:
     """
     
     def __init__(self):
-        self._engines: Dict[int, StabilizationEngine] = {}
-        self._original_drivers: Dict[int, 'WebDriver'] = {}
-        self._wrapped_drivers: Dict[int, StabilizedWebDriver] = {}
+        # Both keys and values are weak. A registry entry cannot keep either the
+        # Selenium driver or its wrapper alive after user code releases them.
+        self._wrapped_drivers: WeakKeyDictionary = WeakKeyDictionary()
+
+    def _lookup(self, driver: 'WebDriver') -> Optional[StabilizedWebDriver]:
+        ref = self._wrapped_drivers.get(driver)
+        return ref() if ref is not None else None
     
     def stabilize(
         self,
@@ -232,6 +224,11 @@ class SeleniumIntegration:
             The returned driver wraps the original but is not a true WebDriver.
             If you need the original for framework integration, use .unwrapped
         """
+        if isinstance(driver, StabilizedWebDriver):
+            if config is not None:
+                driver._engine.configure(config)
+            return driver
+
         # Validate driver is a WebDriver-like object
         if driver is None:
             raise TypeError("driver cannot be None")
@@ -245,20 +242,16 @@ class SeleniumIntegration:
             )
         
         driver_id = id(driver)
-        
-        if driver_id in self._wrapped_drivers:
-            existing = self._wrapped_drivers[driver_id]
+        existing = self._lookup(driver)
+        if existing is not None:
             if config:
-                existing._engine.config = config
+                existing._engine.configure(config)
             return existing
         
         effective_config = config or DEFAULT_CONFIG
         engine = StabilizationEngine(driver, effective_config)
         wrapped = StabilizedWebDriver(driver, engine)
-        
-        self._engines[driver_id] = engine
-        self._original_drivers[driver_id] = driver
-        self._wrapped_drivers[driver_id] = wrapped
+        self._wrapped_drivers[driver] = weakref.ref(wrapped)
         
         if effective_config.debug_mode:
             logger.info(f"[waitless] Stabilization enabled for driver {driver_id}")
@@ -282,9 +275,7 @@ class SeleniumIntegration:
             original = driver
             driver_id = id(driver)
         
-        self._engines.pop(driver_id, None)
-        self._original_drivers.pop(driver_id, None)
-        self._wrapped_drivers.pop(driver_id, None)
+        self._wrapped_drivers.pop(original, None)
         
         logger.info(f"[waitless] Stabilization disabled for driver {driver_id}")
         
@@ -294,13 +285,14 @@ class SeleniumIntegration:
         """Get the engine for a driver (for diagnostics)."""
         if isinstance(driver, StabilizedWebDriver):
             return driver._engine
-        return self._engines.get(id(driver))
+        wrapped = self._lookup(driver)
+        return wrapped._engine if wrapped is not None else None
     
     def is_stabilized(self, driver: 'WebDriver') -> bool:
         """Check if a driver is currently stabilized."""
         if isinstance(driver, StabilizedWebDriver):
             return True
-        return id(driver) in self._wrapped_drivers
+        return self._lookup(driver) is not None
 
 
 _integration = SeleniumIntegration()

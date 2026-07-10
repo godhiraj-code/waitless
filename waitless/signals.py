@@ -25,6 +25,8 @@ class SignalType(Enum):
     RAF_ACTIVITY = auto()
     WEBSOCKET_ACTIVITY = auto()
     SSE_ACTIVITY = auto()
+    FRAMEWORK_ACTIVITY = auto()
+    IFRAME_READINESS = auto()
 
 
 class SignalState(Enum):
@@ -131,8 +133,9 @@ class SignalEvaluator:
         dom_signal = self._evaluate_dom(browser_state, current_time)
         signals.append(dom_signal)
         
-        network_signal = self._evaluate_network(browser_state)
-        signals.append(network_signal)
+        if self.config.strictness != 'relaxed':
+            network_signal = self._evaluate_network(browser_state)
+            signals.append(network_signal)
         
         if self.config.animation_detection:
             animation_signal = self._evaluate_animations(browser_state)
@@ -150,6 +153,12 @@ class SignalEvaluator:
         if self.config.track_sse:
             sse_signal = self._evaluate_sse(browser_state, current_time)
             signals.append(sse_signal)
+
+        for framework in browser_state.get('framework_status', []):
+            signals.append(self._evaluate_framework(framework))
+
+        if self.config.track_iframes:
+            signals.append(self._evaluate_iframes(browser_state))
         
         is_stable = all(
             s.is_stable for s in signals if s.is_mandatory
@@ -305,4 +314,30 @@ class SignalEvaluator:
             threshold=quiet_time_ms,
             is_mandatory=True,  # Mandatory when enabled
             details=f"{active_sse} SSE connection(s), last activity {time_since_activity:.0f}ms ago",
+        )
+
+    def _evaluate_framework(self, framework: Dict[str, Any]) -> Signal:
+        name = framework.get('name', 'framework')
+        stable = bool(framework.get('stable', False))
+        return Signal(
+            signal_type=SignalType.FRAMEWORK_ACTIVITY,
+            state=SignalState.STABLE if stable else SignalState.UNSTABLE,
+            value={'name': name, 'stable': stable},
+            threshold=True,
+            is_mandatory=True,
+            details=f"{name}: {framework.get('details', 'no details')}",
+        )
+
+    def _evaluate_iframes(self, state: Dict[str, Any]) -> Signal:
+        frames = state.get('iframe_status', [])
+        # Cross-origin frames are explicitly outside Waitless's visibility and
+        # therefore do not block. Accessible same-origin frames must finish load.
+        pending = [f for f in frames if f.get('accessible') and not f.get('loaded')]
+        return Signal(
+            signal_type=SignalType.IFRAME_READINESS,
+            state=SignalState.STABLE if not pending else SignalState.UNSTABLE,
+            value=len(pending),
+            threshold=0,
+            is_mandatory=True,
+            details=f"{len(pending)} same-origin iframe(s) still loading",
         )

@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "waitless"
-version = "1.0.0"
+version = "1.0.1"
 description = "Eliminate explicit waits in UI automation by detecting true UI stability"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.9"
 authors = [
     {name = "Dhiraj Das", email = "dhirajdas.666@gmail.com"}
@@ -24,7 +24,6 @@ keywords = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
@@ -33,6 +32,9 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Testing",
     "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = [
+    "selenium>=4.0",
 ]
 
 [project.urls]
@@ -47,7 +49,7 @@ waitless = "waitless.__main__:main"
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
-    "selenium>=4.0",
+    "build>=1.0",
 ]
 
 [tool.setuptools.packages.find]

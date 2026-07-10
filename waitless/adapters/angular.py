@@ -56,9 +56,12 @@ class AngularAdapter(FrameworkAdapter):
             if (testability && testability.length > 0) {
                 testability.forEach(function(t) {
                     t.whenStable(function() {
-                        window.__waitless__.framework.angular.isStable = true;
-                        window.__waitless__.framework.angular.lastStableTime = Date.now();
-                        window.__waitless__._log('Angular became stable');
+                        var angular = window.__waitless__ && window.__waitless__.framework && window.__waitless__.framework.angular;
+                        if (angular) {
+                            angular.isStable = true;
+                            angular.lastStableTime = Date.now();
+                            window.__waitless__._log('Angular became stable');
+                        }
                     });
                 });
             }
@@ -66,20 +69,29 @@ class AngularAdapter(FrameworkAdapter):
             // Also try to hook into Zone.js if available
             if (window.Zone && window.Zone.current) {
                 var originalRun = Zone.prototype.run;
+                window.__waitless__._angularOriginals = {
+                    zonePrototype: Zone.prototype,
+                    run: originalRun
+                };
                 Zone.prototype.run = function(callback, applyThis, applyArgs) {
-                    if (this.name === 'angular') {
-                        window.__waitless__.framework.angular.isStable = false;
-                        window.__waitless__.framework.angular.pendingTasks++;
+                    var angular = window.__waitless__ && window.__waitless__.framework && window.__waitless__.framework.angular;
+                    var tracked = this.name === 'angular' && angular;
+                    if (tracked) {
+                        angular.isStable = false;
+                        angular.pendingTasks++;
                     }
-                    var result = originalRun.apply(this, arguments);
-                    if (this.name === 'angular') {
-                        window.__waitless__.framework.angular.pendingTasks--;
-                        if (window.__waitless__.framework.angular.pendingTasks === 0) {
-                            window.__waitless__.framework.angular.isStable = true;
-                            window.__waitless__.framework.angular.lastStableTime = Date.now();
+                    try {
+                        return originalRun.apply(this, arguments);
+                    } finally {
+                        var current = window.__waitless__ && window.__waitless__.framework && window.__waitless__.framework.angular;
+                        if (tracked && current) {
+                            current.pendingTasks--;
+                            if (current.pendingTasks === 0) {
+                                current.isStable = true;
+                                current.lastStableTime = Date.now();
+                            }
                         }
                     }
-                    return result;
                 };
             }
             
@@ -89,6 +101,22 @@ class AngularAdapter(FrameworkAdapter):
         })();
         """
     
+    @property
+    def uninstall_script(self) -> str:
+        return """
+        (function() {
+            if (!window.__waitless__) return true;
+            var originals = window.__waitless__._angularOriginals || {};
+            if (originals.zonePrototype && originals.run) {
+                originals.zonePrototype.run = originals.run;
+            }
+            if (window.__waitless__.framework) delete window.__waitless__.framework.angular;
+            delete window.__waitless__._angularOriginals;
+            delete window.__waitless__._angularHooked;
+            return true;
+        })();
+        """
+
     def get_status_script(self) -> str:
         return """
         (function() {

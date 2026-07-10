@@ -8,6 +8,7 @@ polls for stability status, and makes the final stability decision.
 import time
 import threading
 import logging
+from urllib.parse import urlsplit, urlunsplit
 from typing import Optional, Dict, Any, TYPE_CHECKING
 
 # Import Selenium exceptions for specific error handling
@@ -32,6 +33,7 @@ from .instrumentation import (
     CHECK_ALIVE_SCRIPT,
     GET_STATUS_SCRIPT,
 )
+from .adapters import get_adapter
 from .exceptions import StabilizationTimeout, InstrumentationError
 
 
@@ -71,10 +73,39 @@ class StabilizationEngine:
         self._last_browser_state: Optional[Dict[str, Any]] = None
         self._last_blocking_factors: Dict[str, Any] = {}
         self._timeline: list = []
+        self._active_adapters: list = []
         
         if self.config.debug_mode:
             logging.basicConfig(level=logging.DEBUG)
             logger.setLevel(logging.DEBUG)
+
+    def configure(self, config: StabilizationConfig) -> None:
+        """Apply a new config and force browser instrumentation to be rebuilt."""
+        self.config = config
+        self.evaluator = SignalEvaluator(config)
+        if self._instrumented:
+            try:
+                self._uninstall_adapters()
+                self.driver.execute_script(
+                    "if (window.__waitless__) { window.__waitless__.destroy(); }"
+                )
+            except (JavascriptException, WebDriverException, NoSuchWindowException):
+                # A navigation may already have discarded the old page. The next
+                # wait will inject into the current document regardless.
+                pass
+        self._active_adapters = []
+        self.reset()
+
+    def _browser_config(self) -> Dict[str, Any]:
+        return {
+            'trackLayout': self.config.layout_stability,
+            'trackAnimations': self.config.animation_detection,
+            'trackWebSocket': self.config.track_websocket,
+            'trackSSE': self.config.track_sse,
+            'webSocketQuietTime': self.config.websocket_quiet_time * 1000,
+            'trackIframes': self.config.track_iframes,
+            'redactQueryStrings': True,
+        }
     
     def ensure_instrumented(self) -> None:
         """
@@ -119,24 +150,56 @@ class StabilizationEngine:
             self._debug(f"Instrumentation check failed: {e}")
             return False
     
+    def _uninstall_adapters(self) -> None:
+        """Restore every browser API patched by active framework adapters."""
+        for adapter in reversed(self._active_adapters):
+            try:
+                self.driver.execute_script("return " + adapter.uninstall_script.strip())
+            except (JavascriptException, WebDriverException, NoSuchWindowException):
+                # The page may have navigated or the adapter may already be gone.
+                continue
+
     def _inject_instrumentation(self) -> None:
-        """Inject JavaScript instrumentation into the page."""
+        """Inject configured JavaScript instrumentation and framework hooks."""
         try:
-            self.driver.execute_script(INSTRUMENTATION_SCRIPT)
+            self.driver.execute_script(INSTRUMENTATION_SCRIPT, self._browser_config())
+            self._active_adapters = []
+            for name in self.config.framework_hooks:
+                adapter = get_adapter(name)
+                detected = adapter and self.driver.execute_script(
+                    "return " + adapter.detection_script.strip()
+                )
+                if detected:
+                    installed = self.driver.execute_script(
+                        "return " + adapter.instrumentation_script.strip()
+                    )
+                    if installed:
+                        self._active_adapters.append(adapter)
             self._instrumented = True
             self._debug("Instrumentation injected successfully")
-        except Exception as e:
+        except (JavascriptException, WebDriverException, NoSuchWindowException) as e:
             self._instrumented = False
             raise InstrumentationError(
                 f"Failed to inject instrumentation: {e}",
                 original_error=e
-            )
+            ) from e
     
     def _get_browser_status(self) -> Optional[Dict[str, Any]]:
         """Get current stability status from browser."""
         try:
-            return self.driver.execute_script(GET_STATUS_SCRIPT)
-        except Exception as e:
+            state = self.driver.execute_script(GET_STATUS_SCRIPT)
+            if state is not None and self._active_adapters:
+                state['framework_status'] = [
+                    {
+                        'name': adapter.name,
+                        **self.driver.execute_script(
+                            "return " + adapter.get_status_script().strip()
+                        ),
+                    }
+                    for adapter in self._active_adapters
+                ]
+            return state
+        except (JavascriptException, WebDriverException, NoSuchWindowException) as e:
             self._debug(f"Failed to get browser status: {e}")
             return None
     
@@ -193,13 +256,13 @@ class StabilizationEngine:
             status = self.evaluator.evaluate(browser_state, current_time)
             last_status = status
             self._last_status = status
-            self._last_browser_state = browser_state  # Store for diagnostics
+            self._last_browser_state = browser_state
+            self._update_diagnostics(browser_state, status)
             
             if status.is_stable:
                 self._debug(f"UI stable after {elapsed:.2f}s")
                 return status
             
-            self._update_diagnostics(browser_state, status)
             time.sleep(self.config.poll_interval)
     
     def _handle_timeout(
@@ -242,6 +305,44 @@ class StabilizationEngine:
             timeline=self._timeline[-50:],
         )
     
+    @staticmethod
+    def _redact_url(url: Any) -> str:
+        """Remove query strings/fragments from diagnostic URLs by default."""
+        value = str(url or 'unknown')
+        parts = urlsplit(value)
+        hostname = parts.hostname or ''
+        if ':' in hostname and not hostname.startswith('['):
+            hostname = f'[{hostname}]'
+        try:
+            port = parts.port
+        except ValueError:
+            port = None
+        netloc = f'{hostname}:{port}' if port is not None else hostname
+        return urlunsplit((parts.scheme, netloc, parts.path, '', ''))
+
+    def _redact_details(self, details: Any) -> list:
+        redacted = []
+        for item in (details or []):
+            clean = dict(item)
+            for key in ('url', 'src'):
+                if key in clean:
+                    clean[key] = self._redact_url(clean[key])
+            redacted.append(clean)
+        return redacted
+
+    def _redact_timeline(self, timeline: Any) -> list:
+        result = []
+        for entry in (timeline or []):
+            clean = dict(entry)
+            if isinstance(clean.get('data'), dict):
+                data = dict(clean['data'])
+                for key in ('url', 'src'):
+                    if key in data:
+                        data[key] = self._redact_url(data[key])
+                clean['data'] = data
+            result.append(clean)
+        return result
+
     def _update_diagnostics(
         self,
         browser_state: Dict[str, Any],
@@ -250,13 +351,24 @@ class StabilizationEngine:
         """Update diagnostic information for the doctor command."""
         self._last_blocking_factors = {
             'pending_requests': browser_state.get('pending_requests', 0),
-            'pending_request_details': browser_state.get('pending_request_details', []),
+            'pending_request_details': self._redact_details(
+                browser_state.get('pending_request_details')
+            ),
             'active_animations': browser_state.get('active_animations', 0),
             'layout_shifting': browser_state.get('layout_shifting', False),
             'last_mutation_time': browser_state.get('last_mutation_time', 0),
+            'mutation_rate': browser_state.get('mutation_rate', 0),
+            'active_websockets': browser_state.get('active_websockets', 0),
+            'last_websocket_activity': browser_state.get('last_websocket_activity', 0),
+            'websocket_details': self._redact_details(browser_state.get('websocket_details')),
+            'active_sse': browser_state.get('active_sse', 0),
+            'last_sse_activity': browser_state.get('last_sse_activity', 0),
+            'sse_details': self._redact_details(browser_state.get('sse_details')),
+            'iframe_status': self._redact_details(browser_state.get('iframe_status')),
+            'framework_status': browser_state.get('framework_status', []),
         }
         
-        timeline = browser_state.get('timeline', [])
+        timeline = self._redact_timeline(browser_state.get('timeline'))
         self._timeline.extend(timeline)
         self._timeline = self._timeline[-200:]
     
@@ -272,16 +384,31 @@ class StabilizationEngine:
         Returns:
             Dictionary with diagnostic data
         """
+        browser_state = dict(self._last_browser_state or {})
+        for key in ('pending_request_details', 'websocket_details', 'sse_details', 'iframe_status'):
+            browser_state[key] = self._redact_details(browser_state.get(key))
+        browser_state['timeline'] = self._redact_timeline(browser_state.get('timeline'))
         return {
+            'schema_version': 1,
             'config': {
                 'timeout': self.config.timeout,
-                'strictness': self.config.strictness,
+                'dom_settle_time': self.config.dom_settle_time,
+                'mutation_rate_threshold': self.config.mutation_rate_threshold,
                 'network_idle_threshold': self.config.network_idle_threshold,
                 'animation_detection': self.config.animation_detection,
+                'layout_stability': self.config.layout_stability,
+                'strictness': self.config.strictness,
+                'poll_interval': self.config.poll_interval,
+                'track_websocket': self.config.track_websocket,
+                'track_sse': self.config.track_sse,
+                'websocket_quiet_time': self.config.websocket_quiet_time,
+                'framework_hooks': list(self.config.framework_hooks),
+                'track_iframes': self.config.track_iframes,
             },
-            'last_status': self._last_browser_state,  # Raw browser state with mutation_rate, etc.
-            'blocking_factors': self._last_blocking_factors,
-            'timeline': self._timeline[-50:],
+            'last_status': self._last_status.to_dict() if self._last_status else None,
+            'browser_state': browser_state,
+            'blocking_factors': dict(self._last_blocking_factors),
+            'timeline': list(self._timeline[-50:]),
             'instrumented': self._instrumented,
         }
     

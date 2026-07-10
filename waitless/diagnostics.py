@@ -166,14 +166,14 @@ class DiagnosticReport:
             )
         
         if suggestions:
-            lines.append("╠" + "═" * 66 + "╣")
-            lines.append("║ SUGGESTIONS:".ljust(67) + "║")
-            lines.append("║".ljust(67) + "║")
+            lines.append("+-" + "-" * 66 + "-+")
+            lines.append("| SUGGESTIONS:".ljust(67) + "|")
+            lines.append("|".ljust(67) + "|")
             
             for i, suggestion in enumerate(suggestions, 1):
                 for line in f"{i}. {suggestion}".split('\n'):
-                    lines.append(f"║ {line}".ljust(67) + "║")
-                lines.append("║".ljust(67) + "║")
+                    lines.append(f"| {line}".ljust(67) + "|")
+                lines.append("|".ljust(67) + "|")
         
         return lines
     
@@ -185,13 +185,19 @@ class DiagnosticReport:
         }, indent=2, default=str)
 
 
-def generate_report(engine: 'StabilizationEngine') -> DiagnosticReport:
-    """Generate a diagnostic report from an engine."""
-    diagnostics = engine.get_diagnostics()
+def generate_report(source: Any) -> DiagnosticReport:
+    """Generate a report from an engine or a diagnostics dictionary."""
+    if isinstance(source, dict):
+        diagnostics = source.get('diagnostics', source)
+    elif hasattr(source, 'get_diagnostics'):
+        diagnostics = source.get_diagnostics()
+    elif hasattr(source, '_engine'):
+        diagnostics = source._engine.get_diagnostics()
+    else:
+        raise TypeError("expected diagnostics dict, engine, or stabilized driver")
     return DiagnosticReport(diagnostics)
 
 
-def print_report(engine: 'StabilizationEngine') -> None:
-    """Print a diagnostic report to stdout."""
-    report = generate_report(engine)
-    print(report.generate_text_report())
+def print_report(source: Any) -> None:
+    """Print a report from diagnostics, an engine, or a stabilized driver."""
+    print(generate_report(source).generate_text_report())
