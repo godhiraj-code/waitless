@@ -38,9 +38,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://www.dhirajdas.dev"
-Documentation = "https://github.com/godhiraj-code/waitless#readme"
-Repository = "https://github.com/godhiraj-code/waitless.git"
+Homepage = "https://www.dhirajdas.dev/project/waitless"
+Documentation = "https://www.dhirajdas.dev/project/waitless"
+Repository = "https://github.com/godhiraj-code/waitless"
 Issues = "https://github.com/godhiraj-code/waitless/issues"
 
 [project.scripts]

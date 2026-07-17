@@ -6,7 +6,9 @@
 
 Reduce explicit waits and sleeps by automatically evaluating multiple UI stability signals.
 
+[Watch the demo and read the architecture case study](https://www.dhirajdas.dev/project/waitless) · [Install from PyPI](https://pypi.org/project/waitless/)
 
+![Waitless stability demo](examples/waitless_demo.webp)
 
 ## Installation
 
@@ -262,3 +264,7 @@ See [CHANGELOG.md](CHANGELOG.md) for version history.
 ## License
 
 MIT
+
+## Try It on a Real Flaky Flow
+
+Run Waitless against one Selenium flow that currently uses sleeps or retries, then compare failures and elapsed time before and after. Share a sanitized result in an issue. If it removes a sleep or retry, [star the repository](https://github.com/godhiraj-code/waitless). The [full case study](https://www.dhirajdas.dev/project/waitless) explains the architecture and trade-offs.
