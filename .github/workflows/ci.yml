@@ -87,5 +87,5 @@ jobs:
         python -m venv wheel-smoke
         source wheel-smoke/bin/activate
         python -m pip install dist/*.whl
-        python -c "import selenium, waitless; assert waitless.__version__ == '1.0.1'; print(waitless.__version__, selenium.__version__)"
+        python -c "import selenium, waitless; assert waitless.__version__ == '1.0.3'; print(waitless.__version__, selenium.__version__)"
 

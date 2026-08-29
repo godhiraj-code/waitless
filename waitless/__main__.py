@@ -14,7 +14,7 @@ def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         prog='waitless',
-        description='Waitless - Zero-wait UI automation stabilization'
+        description='Waitless - Automatic Selenium UI stabilization'
     )
     
     subparsers = parser.add_subparsers(dest='command', help='Available commands')

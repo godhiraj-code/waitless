@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "waitless"
-version = "1.0.1"
-description = "Eliminate explicit waits in UI automation by detecting true UI stability"
+version = "1.0.3"
+description = "Reduce explicit waits in Selenium by evaluating UI stability signals"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"

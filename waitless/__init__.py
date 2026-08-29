@@ -1,8 +1,8 @@
 """
-Waitless - Zero-wait UI automation stabilization library.
+Waitless - Automatic Selenium UI stabilization library.
 
-Eliminate explicit waits and sleeps in UI automation by automatically
-waiting for true UI stability instead of time-based conditions.
+Reduce explicit waits and sleeps by evaluating configurable UI stability
+signals before supported Selenium interactions.
 
 Basic Usage:
     from waitless import stabilize
@@ -36,7 +36,7 @@ Disable:
     driver = unstabilize(driver)  # Back to original behavior
 """
 
-__version__ = '1.0.1'
+__version__ = '1.0.3'
 __author__ = 'Dhiraj Das'
 
 # Public API
