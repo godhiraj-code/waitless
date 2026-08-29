@@ -5,9 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.1] - Unreleased
+## [1.0.3] - 2026-08-30
 
 ### Fixed
+- Balance XHR request accounting when a synchronous `send()` fails before `loadend`.
+- Tighten README and package claims to the behavior verified by the implementation and tests.
 - Propagate Python stabilization options into browser instrumentation before it initializes.
 - Count individual DOM mutation records, including Shadow DOM mutations.
 - Execute configured React, Angular, and Vue adapter detection/status hooks.

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "waitless"
-version = "1.0.1"
+version = "1.0.3"
 description = "Reduce explicit waits in Selenium by evaluating UI stability signals"
 readme = "README.md"
 license = "MIT"
