@@ -21,16 +21,16 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from waitless import stabilize
 
-# Create driver as usual
 driver = webdriver.Chrome()
-
-# Enable automatic stabilization - ONE LINE
 driver = stabilize(driver)
 
-# All interactions now auto-wait for stability
-driver.get("https://example.com")
-driver.find_element(By.ID, "login-button").click()  # ← Auto-waits!
-driver.find_element(By.ID, "username").send_keys("user")  # ← Auto-waits!
+# Navigation, lookups, and common element actions now wait for stability.
+driver.get(
+    "data:text/html,<input id='username'><button id='login-button'>Log in</button>"
+)
+driver.find_element(By.ID, "username").send_keys("user")
+driver.find_element(By.ID, "login-button").click()
+driver.quit()
 ```
 
 ## Why Waitless?
@@ -49,22 +49,23 @@ Automation tests fail because interactions happen while the UI is still changing
 | Approach | Problem |
 |----------|---------|
 | `time.sleep(2)` | Too slow, still fails sometimes |
-| `WebDriverWait` | Only checks one element, misses page-wide state |
+| `WebDriverWait` | Requires an explicit condition at each synchronization point |
 | Retries | Masks the real problem, adds flakiness |
 
 ### The Waitless Solution
 
-Waitless monitors the **entire page** for stability signals:
+Waitless evaluates page-level stability signals:
 
-- ✅ DOM mutation activity (MutationObserver, including **Shadow DOM**)
-- ✅ Pending network requests (XHR/fetch interception)
-- ✅ CSS animations and transitions
-- ✅ Layout stability (element movement)
-- ✅ WebSocket/SSE activity (opt-in)
-- ✅ Framework hooks (React/Angular/Vue, opt-in)
-- ✅ Same-origin iframe load readiness (opt-in; not full child-frame signal injection)
+- DOM mutation activity (MutationObserver, including **Shadow DOM**)
+- Pending network requests (XHR/fetch interception after instrumentation is installed)
+- CSS animations and transitions
+- Layout stability for interactive elements
+- WebSocket/SSE activity (opt-in)
+- Framework hooks (React/Angular/Vue, opt-in)
+- Same-origin iframe load readiness (opt-in; not full child-frame signal injection)
 
-When you interact, waitless ensures the page is truly ready.
+Before supported interactions, Waitless polls until the enabled mandatory signals
+meet their configured thresholds.
 
 ## Configuration
 
@@ -172,14 +173,15 @@ Many apps have background traffic that never stops:
 - Feature flags
 - WebSocket heartbeats
 
-If tests timeout frequently, try:
+If known background traffic exceeds the default, raise the threshold carefully:
 ```python
-config = StabilizationConfig(network_idle_threshold=2)
+config = StabilizationConfig(network_idle_threshold=3)
 ```
 
 ### Wrapped Elements
 
-The stabilized driver returns wrapped elements that auto-wait. They behave like WebElements but:
+The stabilized driver returns wrapped elements that auto-wait before `click()`,
+`send_keys()`, `submit()`, and `clear()`. They behave like WebElements but:
 
 - `isinstance(element, WebElement)` returns `False`
 - Use `.unwrap()` to get the original element if needed
@@ -189,15 +191,14 @@ element = driver.find_element(By.ID, "button")
 original = element.unwrap()  # Gets the real WebElement
 ```
 
-## v1.0.0 New Features
+## Optional Signals
 
 - **WebSocket/SSE Awareness** - Track WebSocket and Server-Sent Events activity
 - **Framework Adapters** - React, Angular, Vue hooks for framework-specific settling
 - **iframe Support** - Monitor same-origin iframes
-- **Performance Benchmarks** - Built-in benchmark suite
+- **Performance benchmarks** - Run the repository benchmark against your environment
 
 ```python
-# Enable new v1.0 features
 config = StabilizationConfig(
     track_websocket=True,         # WebSocket monitoring
     track_sse=True,               # SSE monitoring
@@ -210,10 +211,10 @@ config = StabilizationConfig(
 
 | Metric | Typical Value |
 |--------|---------------|
-| Instrumentation injection | Environment-dependent; run `python -m benchmarks.overhead_test` |
-| Per-poll overhead | Environment-dependent; run the bundled benchmark |
+| Instrumentation injection | Environment-dependent; from a repository checkout, run `python benchmarks/overhead_test.py` |
+| Per-poll overhead | Environment-dependent; run the repository benchmark |
 | Poll interval (default) | 50ms |
-| Typical stabilization | 50-200ms after activity |
+| Stabilization time | Depends on page activity, thresholds, and environment |
 
 ### Navigation Handling
 
@@ -228,12 +229,18 @@ JavaScript, Waitless validates/re-injects instrumentation on the next wait:
 This does not observe routes continuously, and cross-origin iframe internals remain
 outside the browser same-origin boundary.
 
+Because instrumentation is installed after Selenium's synchronous navigation call
+returns, requests that start and finish during navigation are not observed. Requests
+started after instrumentation is installed are tracked.
+
 `find_elements()` keeps Selenium's immediate-empty lookup semantics: after the
 page-stability wait, it performs one lookup and returns `[]` when there are no matches.
+By contrast, `find_element()` retries `NoSuchElementException` until the configured
+timeout after the page-stability wait.
 
 ## Current Limitations
 
-- **Selenium only** - Playwright support planned
+- **Selenium only** - No Playwright integration
 - **Sync only** - No async/await support yet
 - **No Service Workers** - SW network requests not intercepted
 

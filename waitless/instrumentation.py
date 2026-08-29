@@ -249,8 +249,16 @@ INSTRUMENTATION_SCRIPT = """
                 xhr.addEventListener('loadend', function() {
                     self._requestEnded(url, 'xhr', xhr.status);
                 });
-                
-                return self._originalXHRSend.apply(this, arguments);
+
+                try {
+                    return self._originalXHRSend.apply(this, arguments);
+                } catch (error) {
+                    // Synchronous failures (for example, send() before open()) do
+                    // not emit loadend. Balance the counter before preserving the
+                    // browser's original exception behavior.
+                    self._requestEnded(url, 'xhr', 'error');
+                    throw error;
+                }
             };
         },
 

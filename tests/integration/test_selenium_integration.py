@@ -239,6 +239,32 @@ class TestBrowserBehaviorContracts:
         )
         assert rate >= 100
 
+    def test_failed_xhr_send_does_not_leave_pending_request(self, driver, fixture_url):
+        driver.get(fixture_url)
+        wrapped = stabilize(driver)
+        wrapped._engine.ensure_instrumented()
+
+        result = driver.execute_script(
+            """
+            const xhr = new XMLHttpRequest();
+            let errorName = null;
+            try {
+                xhr.send();
+            } catch (error) {
+                errorName = error.name;
+            }
+            return {
+                errorName: errorName,
+                pendingRequests: window.__waitless__.pendingRequests
+            };
+            """
+        )
+
+        assert result == {
+            "errorName": "InvalidStateError",
+            "pendingRequests": 0,
+        }
+
     def test_framework_adapter_detection_and_status_are_executed(self, driver, fixture_url):
         driver.get(fixture_url)
         driver.execute_script(

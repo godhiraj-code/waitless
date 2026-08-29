@@ -66,7 +66,8 @@ class StabilizationConfig:
                          Options: 'react', 'angular', 'vue'. Default empty (auto-detect off).
                          When specified, waitless will inject framework-specific hooks.
         
-        track_iframes: Whether to inject instrumentation into same-origin iframes.
+        track_iframes: Whether to monitor same-origin iframe load readiness.
+                       This does not inject full child-frame instrumentation.
                        Default False. Cross-origin iframes cannot be accessed.
     """
     
