@@ -112,8 +112,39 @@ class StabilizedWebDriver:
             return self._stabilized_find_elements
         elif name in {'get', 'refresh', 'back', 'forward'}:
             return self._create_stabilized_navigation(attr, name)
-        
+        elif name == 'execute_async_script':
+            return self._create_stabilized_execute_async_script
+        elif name ==  'execute_script':
+            return self._create_stabilized_execute_script
         return attr
+
+    def _unwrap_args_tuple(self, *args):
+        args_list = list(args)
+        for idx, arg in enumerate(args_list):
+            if isinstance(arg, StabilizedWebElement):
+                args_list[idx] = arg._element
+        return tuple(args_list)
+
+    def _wrap_response(self, value):
+        if isinstance(value, dict):
+            for key, val in value.items():
+                value[key] = self._wrap_reponse(val)
+            return value
+        if isinstance(value, list):
+            return list(self._wrap_reponse(item) for item in value)
+        if type(value).__name__ == 'WebElement':
+            return StabilizedWebElement(value, self._engine)
+        return value
+
+    def _create_stabilized_execute_async_script(self, script: str, *args):
+        args_unwrapped = self._unwrap_args_tuple(*args)
+        response  = self._driver.execute_async_script(script, *self._unwrap_args_tuple(*args))
+        return self._wrap_response(response)
+
+    def _create_stabilized_execute_script(self, script: str, *args):
+        args_unwrapped = self._unwrap_args_tuple(*args)
+        response = self._driver.execute_script(script, *self._unwrap_args_tuple(*args))
+        return self._wrap_response(response)
 
     def _create_stabilized_navigation(self, method: callable, name: str) -> callable:
         """Wait for the destination document after a synchronous navigation."""
