@@ -2,7 +2,6 @@
 Unit tests for exceptions.
 """
 
-import pytest
 from waitless.exceptions import (
     WaitlessError,
     StabilizationTimeout,

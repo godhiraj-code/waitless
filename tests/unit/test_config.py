@@ -46,6 +46,29 @@ class TestStabilizationConfig:
         """Test that negative timeout raises error."""
         with pytest.raises(ConfigurationError):
             StabilizationConfig(timeout=-1)
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf"), "10", True])
+    def test_timeout_must_be_a_finite_number(self, value):
+        with pytest.raises(ConfigurationError):
+            StabilizationConfig(timeout=value)
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("dom_settle_time", float("nan")),
+            ("mutation_rate_threshold", float("inf")),
+            ("poll_interval", "0.1"),
+            ("websocket_quiet_time", -float("inf")),
+        ],
+    )
+    def test_numeric_options_must_be_finite_numbers(self, field, value):
+        with pytest.raises(ConfigurationError):
+            StabilizationConfig(**{field: value})
+
+    @pytest.mark.parametrize("value", [1.5, float("nan"), "1", True])
+    def test_network_idle_threshold_must_be_an_integer(self, value):
+        with pytest.raises(ConfigurationError):
+            StabilizationConfig(network_idle_threshold=value)
     
     def test_invalid_strictness(self):
         """Test that invalid strictness raises error."""

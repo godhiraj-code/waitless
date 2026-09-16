@@ -185,13 +185,25 @@ class SignalEvaluator:
         """
         mutation_rate = state.get('mutation_rate')
         last_mutation = state.get('last_mutation_time', 0)
+        quiet_for_ms = state.get('dom_quiet_for_ms')
+        if quiet_for_ms is None:
+            quiet_for_ms = max(0, (current_time * 1000) - last_mutation)
+
+        settle_threshold_ms = self.config.dom_settle_time * 1000
         
         # Primary: Use mutation rate if available
         if mutation_rate is not None:
             threshold = self.config.mutation_rate_threshold
-            is_stable = mutation_rate <= threshold
+            rate_is_stable = mutation_rate <= threshold
+            quiet_is_stable = quiet_for_ms >= settle_threshold_ms
+            is_stable = rate_is_stable and quiet_is_stable
             
-            details = f"Mutation rate: {mutation_rate:.0f}/sec (threshold: {threshold:.0f}/sec)"
+            details = (
+                f"Mutation rate: {mutation_rate:.0f}/sec "
+                f"(threshold: {threshold:.0f}/sec); "
+                f"quiet for {quiet_for_ms:.0f}ms "
+                f"(need {settle_threshold_ms:.0f}ms)"
+            )
                 
             return Signal(
                 signal_type=SignalType.DOM_MUTATIONS,
@@ -203,17 +215,18 @@ class SignalEvaluator:
             )
         
         # Fallback: Use time since last mutation
-        time_since_mutation = (current_time * 1000) - last_mutation
-        threshold_ms = self.config.dom_settle_time * 1000
-        is_stable = time_since_mutation >= threshold_ms
+        is_stable = quiet_for_ms >= settle_threshold_ms
         
         return Signal(
             signal_type=SignalType.DOM_MUTATIONS,
             state=SignalState.STABLE if is_stable else SignalState.UNSTABLE,
-            value=time_since_mutation,
-            threshold=threshold_ms,
+            value=quiet_for_ms,
+            threshold=settle_threshold_ms,
             is_mandatory=True,
-            details=f"Last mutation {time_since_mutation:.0f}ms ago (need {threshold_ms:.0f}ms quiet)",
+            details=(
+                f"Last mutation {quiet_for_ms:.0f}ms ago "
+                f"(need {settle_threshold_ms:.0f}ms quiet)"
+            ),
         )
     
     def _evaluate_network(self, state: Dict[str, Any]) -> Signal:
@@ -256,14 +269,23 @@ class SignalEvaluator:
     def _evaluate_layout(self, state: Dict[str, Any]) -> Signal:
         """Evaluate layout stability (element movement)."""
         is_shifting = state.get('layout_shifting', False)
+        is_ready = state.get('layout_ready', True)
+        is_stable = is_ready and not is_shifting
+
+        if not is_ready:
+            details = "Waiting for layout baseline"
+        elif is_shifting:
+            details = "Layout shifting detected"
+        else:
+            details = "Layout stable"
         
         return Signal(
             signal_type=SignalType.LAYOUT_SHIFT,
-            state=SignalState.STABLE if not is_shifting else SignalState.UNSTABLE,
+            state=SignalState.STABLE if is_stable else SignalState.UNSTABLE,
             value=is_shifting,
             threshold=False,
             is_mandatory=self.config.strictness == 'strict',
-            details="Layout shifting detected" if is_shifting else "Layout stable",
+            details=details,
         )
     
     def _evaluate_websocket(self, state: Dict[str, Any], current_time: float) -> Signal:

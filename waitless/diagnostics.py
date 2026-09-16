@@ -6,10 +6,7 @@ Provides detailed analysis of stability issues with actionable suggestions.
 
 import json
 from datetime import datetime
-from typing import Dict, Any, List, Optional, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .engine import StabilizationEngine
+from typing import Dict, Any, List
 
 
 class DiagnosticReport:
@@ -50,7 +47,6 @@ class DiagnosticReport:
                 details = blocking.get('pending_request_details', [])
                 for req in details[:5]:  # Show max 5
                     url = req.get('url', 'unknown')[:50]
-                    started = req.get('startTime', 0)
                     lines.append(f"|   -> {req.get('type', 'unknown').upper()} {url}".ljust(67) + "|")
                 
                 if len(details) > 5:

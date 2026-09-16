@@ -36,7 +36,7 @@ Disable:
     driver = unstabilize(driver)  # Back to original behavior
 """
 
-__version__ = '1.0.3'
+__version__ = '1.0.4'
 __author__ = 'Dhiraj Das'
 
 # Public API

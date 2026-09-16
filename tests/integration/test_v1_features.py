@@ -6,10 +6,6 @@ tracked in a real Selenium environment.
 """
 
 import pytest
-import os
-import threading
-import time
-from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 
 # Test page HTML with WebSocket and SSE simulation
@@ -123,9 +119,6 @@ class TestFrameworkAdaptersIntegration:
         from waitless.adapters import (
             get_adapter,
             get_available_adapters,
-            ReactAdapter,
-            AngularAdapter,
-            VueAdapter,
         )
         
         assert get_available_adapters() == ['react', 'angular', 'vue']

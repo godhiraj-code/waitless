@@ -5,7 +5,6 @@ These tests require Chrome/ChromeDriver to be installed.
 Run with: pytest tests/integration/ -v
 """
 
-import os
 import pytest
 from pathlib import Path
 
@@ -16,8 +15,6 @@ pytest.importorskip("selenium")
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 
 from waitless import (
     stabilize,
@@ -107,6 +104,84 @@ class TestStabilization:
         
         # Should be able to use Selenium methods
         assert original.text == "Waitless Test Fixture"
+
+    def test_execute_script_wraps_nested_elements_and_unwraps_arguments(
+        self,
+        driver,
+        fixture_url,
+    ):
+        wrapped = stabilize(driver)
+        wrapped.get(fixture_url)
+
+        result = wrapped.execute_script(
+            "return {items: [document.querySelector('h1')]};"
+        )
+
+        assert isinstance(result["items"][0], StabilizedWebElement)
+        tag_name = wrapped.execute_script(
+            "return arguments[0].items[0].tagName;",
+            {"items": [result["items"][0]]},
+        )
+        assert tag_name == "H1"
+
+    def test_execute_script_unwraps_shadow_root_arguments(self, driver, fixture_url):
+        wrapped = stabilize(driver)
+        wrapped.get(fixture_url)
+        driver.execute_script(
+            """
+            const host = document.createElement('div');
+            host.id = 'script-shadow-host';
+            host.attachShadow({mode: 'open'}).innerHTML = '<button>Inside</button>';
+            document.body.appendChild(host);
+            """
+        )
+
+        host = wrapped.find_element(By.ID, "script-shadow-host")
+        shadow_root = host.shadow_root
+
+        assert wrapped.execute_script(
+            "return arguments[0].host.id;",
+            shadow_root,
+        ) == "script-shadow-host"
+
+    def test_unstabilize_restores_browser_hooks_and_allows_fresh_config(
+        self,
+        driver,
+        fixture_url,
+    ):
+        driver.get(fixture_url)
+        driver.execute_script("window.__fetchBeforeWaitless = window.fetch;")
+        wrapped = stabilize(
+            driver,
+            config=StabilizationConfig(layout_stability=False),
+        )
+        wrapped._engine.ensure_instrumented()
+
+        assert driver.execute_script(
+            "return window.fetch !== window.__fetchBeforeWaitless;"
+        ) is True
+
+        original = unstabilize(wrapped)
+
+        assert original is driver
+        assert driver.execute_script(
+            "return window.fetch === window.__fetchBeforeWaitless;"
+        ) is True
+        assert driver.execute_script(
+            "return window.__waitless__._initialized;"
+        ) is False
+
+        configured = stabilize(
+            driver,
+            config=StabilizationConfig(
+                layout_stability=False,
+                dom_settle_time=0.25,
+            ),
+        )
+        configured._engine.ensure_instrumented()
+        assert driver.execute_script(
+            "return window.__waitless__.config.domSettleTime;"
+        ) == 250
 
 
 class TestStabilizationBehavior:
@@ -214,6 +289,7 @@ class TestBrowserBehaviorContracts:
         assert browser_config == {
             "trackLayout": False,
             "trackAnimations": False,
+            "domSettleTime": 100,
             "trackWebSocket": True,
             "trackSSE": True,
             "webSocketQuietTime": 750,

@@ -2,7 +2,6 @@
 Unit tests for WebSocket and SSE tracking in instrumentation.
 """
 
-import pytest
 from waitless.instrumentation import INSTRUMENTATION_SCRIPT
 
 

@@ -17,6 +17,11 @@ from weakref import WeakKeyDictionary
 from .config import StabilizationConfig, DEFAULT_CONFIG
 from .engine import StabilizationEngine
 
+try:
+    from selenium.webdriver.remote.webelement import WebElement as SeleniumWebElement
+except ImportError:  # Keep importing waitless possible for documentation builds.
+    SeleniumWebElement = ()
+
 
 if TYPE_CHECKING:
     from selenium.webdriver.remote.webdriver import WebDriver
@@ -24,6 +29,34 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger('waitless')
+
+
+class _StabilizedSearchContext:
+    """Keep element lookups from contexts such as ShadowRoot stabilized."""
+
+    def __init__(self, context: Any, engine: StabilizationEngine):
+        self._context = context
+        self._engine = engine
+
+    def find_element(self, *args, **kwargs) -> 'StabilizedWebElement':
+        self._engine.wait_for_stability()
+        return StabilizedWebElement(
+            self._context.find_element(*args, **kwargs),
+            self._engine,
+        )
+
+    def find_elements(self, *args, **kwargs) -> List['StabilizedWebElement']:
+        self._engine.wait_for_stability()
+        return [
+            StabilizedWebElement(element, self._engine)
+            for element in self._context.find_elements(*args, **kwargs)
+        ]
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._context, name)
+
+    def unwrap(self) -> Any:
+        return self._context
 
 
 class StabilizedWebElement:
@@ -52,8 +85,26 @@ class StabilizedWebElement:
         attr = getattr(self._element, name)
         if name in self.INTERACTION_METHODS and callable(attr):
             return self._create_stabilized_method(attr, name)
+        if name == 'find_element':
+            return self._stabilized_find_element
+        if name == 'find_elements':
+            return self._stabilized_find_elements
+        if name == 'shadow_root':
+            return _StabilizedSearchContext(attr, self._engine)
         
         return attr
+
+    def _stabilized_find_element(self, *args, **kwargs) -> 'StabilizedWebElement':
+        """Keep elements found below this element inside the wrapper boundary."""
+        self._engine.wait_for_stability()
+        element = self._element.find_element(*args, **kwargs)
+        return StabilizedWebElement(element, self._engine)
+
+    def _stabilized_find_elements(self, *args, **kwargs) -> List['StabilizedWebElement']:
+        """Return wrapped descendants while preserving Selenium's list contract."""
+        self._engine.wait_for_stability()
+        elements = self._element.find_elements(*args, **kwargs)
+        return [StabilizedWebElement(element, self._engine) for element in elements]
     
     def _create_stabilized_method(self, method: callable, name: str) -> callable:
         """Create a wrapper that stabilizes before calling the method."""
@@ -118,32 +169,48 @@ class StabilizedWebDriver:
             return self._create_stabilized_execute_script
         return attr
 
+    def _unwrap_script_arg(self, value):
+        """Recursively replace wrapped elements in JavaScript arguments."""
+        if isinstance(value, StabilizedWebElement):
+            return value.unwrap()
+        if isinstance(value, _StabilizedSearchContext):
+            return value.unwrap()
+        if isinstance(value, dict):
+            return {
+                key: self._unwrap_script_arg(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [self._unwrap_script_arg(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(self._unwrap_script_arg(item) for item in value)
+        return value
+
     def _unwrap_args_tuple(self, *args):
-        args_list = list(args)
-        for idx, arg in enumerate(args_list):
-            if isinstance(arg, StabilizedWebElement):
-                args_list[idx] = arg._element
-        return tuple(args_list)
+        return tuple(self._unwrap_script_arg(arg) for arg in args)
 
     def _wrap_response(self, value):
         if isinstance(value, dict):
-            for key, val in value.items():
-                value[key] = self._wrap_reponse(val)
-            return value
+            return {
+                key: self._wrap_response(item)
+                for key, item in value.items()
+            }
         if isinstance(value, list):
-            return list(self._wrap_reponse(item) for item in value)
-        if type(value).__name__ == 'WebElement':
+            return [self._wrap_response(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(self._wrap_response(item) for item in value)
+        if SeleniumWebElement and isinstance(value, SeleniumWebElement):
             return StabilizedWebElement(value, self._engine)
         return value
 
     def _create_stabilized_execute_async_script(self, script: str, *args):
         args_unwrapped = self._unwrap_args_tuple(*args)
-        response  = self._driver.execute_async_script(script, *self._unwrap_args_tuple(*args))
+        response = self._driver.execute_async_script(script, *args_unwrapped)
         return self._wrap_response(response)
 
     def _create_stabilized_execute_script(self, script: str, *args):
         args_unwrapped = self._unwrap_args_tuple(*args)
-        response = self._driver.execute_script(script, *self._unwrap_args_tuple(*args))
+        response = self._driver.execute_script(script, *args_unwrapped)
         return self._wrap_response(response)
 
     def _create_stabilized_navigation(self, method: callable, name: str) -> callable:
@@ -302,9 +369,15 @@ class SeleniumIntegration:
         if isinstance(driver, StabilizedWebDriver):
             original = driver.unwrapped
             driver_id = id(original)
+            engine = driver._engine
         else:
             original = driver
             driver_id = id(driver)
+            wrapped = self._lookup(original)
+            engine = wrapped._engine if wrapped is not None else None
+
+        if engine is not None:
+            engine.teardown()
         
         self._wrapped_drivers.pop(original, None)
         

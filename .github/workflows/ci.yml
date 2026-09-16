@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
 
     steps:
     - uses: actions/checkout@v4
@@ -66,6 +66,15 @@ jobs:
       with:
         python-version: '3.11'
 
+    - name: Install lint dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[dev]
+
+    - name: Lint Python sources
+      run: |
+        python -m ruff check waitless tests
+
     - name: Check imports
       run: |
         python -c "import waitless; print(f'waitless {waitless.__version__} imports successfully')"
@@ -87,5 +96,4 @@ jobs:
         python -m venv wheel-smoke
         source wheel-smoke/bin/activate
         python -m pip install dist/*.whl
-        python -c "import selenium, waitless; assert waitless.__version__ == '1.0.3'; print(waitless.__version__, selenium.__version__)"
-
+        python -c "import importlib.metadata, selenium, waitless; assert importlib.metadata.version('waitless') == waitless.__version__; print(waitless.__version__, selenium.__version__)"

@@ -2,7 +2,6 @@
 Unit tests for diagnostics module.
 """
 
-import pytest
 import json
 from waitless.diagnostics import DiagnosticReport, generate_report, print_report
 

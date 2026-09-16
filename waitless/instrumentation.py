@@ -12,7 +12,7 @@ INSTRUMENTATION_SCRIPT = """
     
     window.__waitless__ = {
         _initialized: true,
-        _version: '1.0.3',
+        _version: '1.0.4',
         
         // State tracking
         pendingRequests: 0,
@@ -20,6 +20,7 @@ INSTRUMENTATION_SCRIPT = """
         activeAnimations: 0,
         activeTransitions: 0,
         layoutShifting: false,
+        layoutReady: false,
         
         // WebSocket/SSE tracking
         activeWebSockets: 0,
@@ -27,10 +28,14 @@ INSTRUMENTATION_SCRIPT = """
         lastWebSocketActivity: 0,
         lastSSEActivity: 0,
         webSocketDetails: [],
+        _nextWebSocketId: 1,
         sseDetails: [],
+        _nextSSEId: 1,
         
         // iframe tracking
         iframeStatus: [],  // Status from child iframes
+        _iframeRecords: new WeakMap(),
+        _nextIframeId: 1,
         
         // Timeline for diagnostics (circular buffer)
         timeline: [],
@@ -46,12 +51,14 @@ INSTRUMENTATION_SCRIPT = """
             trackWebSocket: false,
             trackSSE: false,
             webSocketQuietTime: 500,  // ms of silence for stability
+            domSettleTime: 100,  // ms the DOM must remain quiet
             trackIframes: false,
             redactQueryStrings: true
         }, suppliedConfig),
         
         // Lifecycle
         _observers: [],
+        _cleanupCallbacks: [],
         _originalFetch: null,
         _originalXHROpen: null,
         _originalXHRSend: null,
@@ -81,6 +88,27 @@ INSTRUMENTATION_SCRIPT = """
             this._log('Waitless instrumentation initialized');
             return this;
         },
+
+        _registerCleanup: function(callback) {
+            var self = this;
+            var active = true;
+            var cleanup = function() {
+                if (!active) return;
+                active = false;
+                var idx = self._cleanupCallbacks.indexOf(cleanup);
+                if (idx > -1) self._cleanupCallbacks.splice(idx, 1);
+                callback();
+            };
+            this._cleanupCallbacks.push(cleanup);
+            return cleanup;
+        },
+
+        _listen: function(target, type, handler, options) {
+            target.addEventListener(type, handler, options);
+            return this._registerCleanup(function() {
+                target.removeEventListener(type, handler, options);
+            });
+        },
         
         // ===== LOGGING =====
         
@@ -101,7 +129,27 @@ INSTRUMENTATION_SCRIPT = """
         // Rolling window for mutation rate calculation
         _mutationTimestamps: [],
         _mutationWindowMs: 1000,  // 1 second window for rate calculation
+        _maxMutationTimestamps: 10000,
         _observedShadowRoots: new WeakSet(),
+        _trackedShadowRoots: [],
+
+        _pruneMutationTimestamps: function(now) {
+            var cutoff = now - this._mutationWindowMs;
+            var firstRecent = 0;
+            while (firstRecent < this._mutationTimestamps.length &&
+                   this._mutationTimestamps[firstRecent] <= cutoff) {
+                firstRecent++;
+            }
+            if (firstRecent > 0) {
+                this._mutationTimestamps.splice(0, firstRecent);
+            }
+            if (this._mutationTimestamps.length > this._maxMutationTimestamps) {
+                this._mutationTimestamps.splice(
+                    0,
+                    this._mutationTimestamps.length - this._maxMutationTimestamps
+                );
+            }
+        },
 
         _recordMutations: function(mutations, label) {
             var now = Date.now();
@@ -111,10 +159,7 @@ INSTRUMENTATION_SCRIPT = """
             for (var i = 0; i < mutations.length; i++) {
                 this._mutationTimestamps.push(now);
             }
-            var cutoff = now - this._mutationWindowMs;
-            while (this._mutationTimestamps.length > 0 && this._mutationTimestamps[0] < cutoff) {
-                this._mutationTimestamps.shift();
-            }
+            this._pruneMutationTimestamps(now);
             this._log(label, { count: mutations.length, rate: this.getMutationRate() });
         },
         
@@ -154,6 +199,9 @@ INSTRUMENTATION_SCRIPT = """
             var walk = function(node) {
                 if (node.shadowRoot && !self._observedShadowRoots.has(node.shadowRoot)) {
                     self._observedShadowRoots.add(node.shadowRoot);
+                    if (self.config.trackLayout) {
+                        self._trackedShadowRoots.push(node.shadowRoot);
+                    }
                     
                     var observer = new MutationObserver(function(mutations) {
                         self._recordMutations(mutations, 'Shadow DOM mutation');
@@ -194,18 +242,8 @@ INSTRUMENTATION_SCRIPT = """
         // Calculate mutations per second from rolling window
         getMutationRate: function() {
             var now = Date.now();
-            var cutoff = now - this._mutationWindowMs;
-            
-            // Count mutations in the last second
-            var count = 0;
-            for (var i = 0; i < this._mutationTimestamps.length; i++) {
-                if (this._mutationTimestamps[i] > cutoff) {
-                    count++;
-                }
-            }
-            
-            // Return rate per second
-            return count;
+            this._pruneMutationTimestamps(now);
+            return this._mutationTimestamps.length;
         },
         
         // ===== NETWORK INTERCEPTORS =====
@@ -264,7 +302,25 @@ INSTRUMENTATION_SCRIPT = """
 
         _redactUrl: function(url) {
             var value = String(url || 'unknown');
-            return this.config.redactQueryStrings ? value.split(/[?#]/, 1)[0] : value;
+            if (!this.config.redactQueryStrings) return value;
+
+            try {
+                var parsed = new URL(value, window.location.href);
+                parsed.username = '';
+                parsed.password = '';
+                parsed.search = '';
+                parsed.hash = '';
+
+                if (value.indexOf('//') === 0) {
+                    return '//' + parsed.host + parsed.pathname;
+                }
+                if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value)) {
+                    return parsed.toString();
+                }
+            } catch (error) {
+                // Keep the safe string fallback for malformed or relative URLs.
+            }
+            return value.split(/[?#]/, 1)[0];
         },
         
         _requestStarted: function(url, type) {
@@ -299,33 +355,33 @@ INSTRUMENTATION_SCRIPT = """
             var self = this;
             
             // CSS Animations
-            document.addEventListener('animationstart', function(e) {
+            this._listen(document, 'animationstart', function(e) {
                 self.activeAnimations++;
                 self._log('Animation started', { name: e.animationName });
             }, true);
             
-            document.addEventListener('animationend', function(e) {
+            this._listen(document, 'animationend', function(e) {
                 self.activeAnimations = Math.max(0, self.activeAnimations - 1);
                 self._log('Animation ended', { name: e.animationName });
             }, true);
             
-            document.addEventListener('animationcancel', function(e) {
+            this._listen(document, 'animationcancel', function(e) {
                 self.activeAnimations = Math.max(0, self.activeAnimations - 1);
                 self._log('Animation cancelled', { name: e.animationName });
             }, true);
             
             // CSS Transitions
-            document.addEventListener('transitionstart', function(e) {
+            this._listen(document, 'transitionstart', function(e) {
                 self.activeTransitions++;
                 self._log('Transition started', { property: e.propertyName });
             }, true);
             
-            document.addEventListener('transitionend', function(e) {
+            this._listen(document, 'transitionend', function(e) {
                 self.activeTransitions = Math.max(0, self.activeTransitions - 1);
                 self._log('Transition ended', { property: e.propertyName });
             }, true);
             
-            document.addEventListener('transitioncancel', function(e) {
+            this._listen(document, 'transitioncancel', function(e) {
                 self.activeTransitions = Math.max(0, self.activeTransitions - 1);
                 self._log('Transition cancelled', { property: e.propertyName });
             }, true);
@@ -335,42 +391,47 @@ INSTRUMENTATION_SCRIPT = """
         
         _setupLayoutTracking: function() {
             var self = this;
-            this._lastPositions = new Map();
+            // Element keys must not keep detached DOM subtrees alive.
+            this._lastPositions = new WeakMap();
+            this._layoutSampleCount = 0;
+            this.layoutReady = false;
             this._layoutCheckInterval = null;
-            
-            // Periodic layout stability check
+
+            // Establish positions synchronously, then require a later sample
+            // before strict mode can treat layout as stable.
+            this._checkLayoutStability();
+
+            // Layout reads force style/layout calculation. A 250ms cadence is
+            // responsive enough for stabilization without scanning at 20Hz.
             this._layoutCheckInterval = setInterval(function() {
                 self._checkLayoutStability();
-            }, 50);
+            }, 250);
         },
         
         _checkLayoutStability: function() {
-            // Track key interactive elements, including those in shadow DOM
+            // Track only interactive elements. Shadow roots are discovered by
+            // the mutation observer, so this path never needs querySelectorAll('*').
             var elements = [];
-            
+            var roots = [document];
+            this._trackedShadowRoots = this._trackedShadowRoots.filter(function(root) {
+                return root.host && root.host.isConnected;
+            });
+            roots = roots.concat(this._trackedShadowRoots);
+
             var collectElements = function(root) {
                 var found = root.querySelectorAll('button, a, input, [onclick], [role="button"]');
                 for (var i = 0; i < found.length; i++) {
                     elements.push(found[i]);
                 }
-                
-                // Recursively check shadow roots
-                var all = root.querySelectorAll('*');
-                for (var j = 0; j < all.length; j++) {
-                    if (all[j].shadowRoot) {
-                        collectElements(all[j].shadowRoot);
-                    }
-                }
             };
-            
-            collectElements(document);
+
+            roots.forEach(collectElements);
             
             var isShifting = false;
             var self = this;
             
             elements.forEach(function(el) {
                 var rect = el.getBoundingClientRect();
-                var key = el.id || el.className || el.tagName;
                 var lastPos = self._lastPositions.get(el);
                 
                 if (lastPos) {
@@ -393,6 +454,8 @@ INSTRUMENTATION_SCRIPT = """
                 this.layoutShifting = isShifting;
                 this._log('Layout stability changed', { shifting: isShifting });
             }
+            this._layoutSampleCount++;
+            this.layoutReady = this._layoutSampleCount >= 2;
         },
         
         // ===== WEBSOCKET TRACKING =====
@@ -402,43 +465,51 @@ INSTRUMENTATION_SCRIPT = """
             this._originalWebSocket = window.WebSocket;
             
             window.WebSocket = function(url, protocols) {
-                var ws = protocols 
+                var ws = arguments.length > 1
                     ? new self._originalWebSocket(url, protocols)
                     : new self._originalWebSocket(url);
                 
-                self.activeWebSockets++;
-                self.webSocketDetails.push({
-                    url: url,
+                var safeUrl = self._redactUrl(url);
+                var detail = {
+                    id: 'ws-' + self._nextWebSocketId++,
+                    url: safeUrl,
                     openTime: Date.now(),
                     state: 'connecting'
-                });
-                self._log('WebSocket connecting', { url: url });
-                
-                ws.addEventListener('open', function() {
-                    self.lastWebSocketActivity = Date.now();
-                    var detail = self.webSocketDetails.find(function(d) { return d.url === url; });
-                    if (detail) detail.state = 'open';
-                    self._log('WebSocket opened', { url: url });
-                });
-                
-                ws.addEventListener('message', function(e) {
-                    self.lastWebSocketActivity = Date.now();
-                    self._log('WebSocket message', { url: url, size: e.data ? e.data.length : 0 });
-                });
-                
-                ws.addEventListener('close', function() {
+                };
+                var finalized = false;
+                var socketCleanups = [];
+                self.activeWebSockets++;
+                self.webSocketDetails.push(detail);
+                self._log('WebSocket connecting', { url: safeUrl });
+
+                var finalize = function(eventName) {
+                    if (finalized) return;
+                    finalized = true;
+                    socketCleanups.slice().forEach(function(cleanup) { cleanup(); });
                     self.activeWebSockets = Math.max(0, self.activeWebSockets - 1);
-                    var idx = self.webSocketDetails.findIndex(function(d) { return d.url === url; });
+                    var idx = self.webSocketDetails.indexOf(detail);
                     if (idx > -1) self.webSocketDetails.splice(idx, 1);
-                    self._log('WebSocket closed', { url: url });
-                });
+                    self._log(eventName, { url: safeUrl });
+                };
                 
-                ws.addEventListener('error', function() {
-                    self.activeWebSockets = Math.max(0, self.activeWebSockets - 1);
-                    var idx = self.webSocketDetails.findIndex(function(d) { return d.url === url; });
-                    if (idx > -1) self.webSocketDetails.splice(idx, 1);
-                    self._log('WebSocket error', { url: url });
-                });
+                socketCleanups.push(self._listen(ws, 'open', function() {
+                    self.lastWebSocketActivity = Date.now();
+                    detail.state = 'open';
+                    self._log('WebSocket opened', { url: safeUrl });
+                }));
+                
+                socketCleanups.push(self._listen(ws, 'message', function(e) {
+                    self.lastWebSocketActivity = Date.now();
+                    self._log('WebSocket message', { url: safeUrl, size: e.data ? e.data.length : 0 });
+                }));
+                
+                socketCleanups.push(self._listen(ws, 'close', function() {
+                    finalize('WebSocket closed');
+                }));
+                
+                socketCleanups.push(self._listen(ws, 'error', function() {
+                    finalize('WebSocket error');
+                }));
                 
                 return ws;
             };
@@ -463,36 +534,66 @@ INSTRUMENTATION_SCRIPT = """
             }
             
             window.EventSource = function(url, config) {
-                var es = config
+                var es = arguments.length > 1
                     ? new self._originalEventSource(url, config)
                     : new self._originalEventSource(url);
-                
-                self.activeSSEConnections++;
-                self.sseDetails.push({
-                    url: url,
+
+                var safeUrl = self._redactUrl(url);
+                var detail = {
+                    id: 'sse-' + self._nextSSEId++,
+                    url: safeUrl,
                     openTime: Date.now(),
                     state: 'connecting'
-                });
-                self._log('SSE connecting', { url: url });
-                
-                es.addEventListener('open', function() {
-                    self.lastSSEActivity = Date.now();
-                    var detail = self.sseDetails.find(function(d) { return d.url === url; });
-                    if (detail) detail.state = 'open';
-                    self._log('SSE opened', { url: url });
-                });
-                
-                es.addEventListener('message', function(e) {
-                    self.lastSSEActivity = Date.now();
-                    self._log('SSE message', { url: url });
-                });
-                
-                es.addEventListener('error', function() {
+                };
+                var finalized = false;
+                var sseCleanups = [];
+                self.activeSSEConnections++;
+                self.sseDetails.push(detail);
+                self._log('SSE connecting', { url: safeUrl });
+
+                var finalize = function(eventName) {
+                    if (finalized) return;
+                    finalized = true;
+                    sseCleanups.slice().forEach(function(cleanup) { cleanup(); });
                     self.activeSSEConnections = Math.max(0, self.activeSSEConnections - 1);
-                    var idx = self.sseDetails.findIndex(function(d) { return d.url === url; });
+                    var idx = self.sseDetails.indexOf(detail);
                     if (idx > -1) self.sseDetails.splice(idx, 1);
-                    self._log('SSE error/closed', { url: url });
-                });
+                    self._log(eventName, { url: safeUrl });
+                };
+
+                var originalClose = es.close.bind(es);
+                es.close = function() {
+                    try {
+                        return originalClose();
+                    } finally {
+                        finalize('SSE closed');
+                    }
+                };
+                sseCleanups.push(self._registerCleanup(function() {
+                    es.close = originalClose;
+                }));
+                
+                sseCleanups.push(self._listen(es, 'open', function() {
+                    self.lastSSEActivity = Date.now();
+                    detail.state = 'open';
+                    self._log('SSE opened', { url: safeUrl });
+                }));
+                
+                sseCleanups.push(self._listen(es, 'message', function(e) {
+                    self.lastSSEActivity = Date.now();
+                    self._log('SSE message', { url: safeUrl });
+                }));
+                
+                sseCleanups.push(self._listen(es, 'error', function() {
+                    // EventSource reports transient errors while reconnecting.
+                    // Only CLOSED is terminal; otherwise keep the connection active.
+                    if (es.readyState === self._originalEventSource.CLOSED) {
+                        finalize('SSE error/closed');
+                    } else {
+                        detail.state = 'reconnecting';
+                        self._log('SSE reconnecting', { url: safeUrl });
+                    }
+                }));
                 
                 return es;
             };
@@ -515,6 +616,21 @@ INSTRUMENTATION_SCRIPT = """
                         if (node.tagName === 'IFRAME') {
                             self._injectIntoIframe(node);
                         }
+                        if (node.querySelectorAll) {
+                            node.querySelectorAll('iframe').forEach(function(iframe) {
+                                self._injectIntoIframe(iframe);
+                            });
+                        }
+                    });
+                    m.removedNodes.forEach(function(node) {
+                        if (node.tagName === 'IFRAME') {
+                            self._removeIframe(node);
+                        }
+                        if (node.querySelectorAll) {
+                            node.querySelectorAll('iframe').forEach(function(iframe) {
+                                self._removeIframe(iframe);
+                            });
+                        }
                     });
                 });
             });
@@ -536,58 +652,74 @@ INSTRUMENTATION_SCRIPT = """
         
         _injectIntoIframe: function(iframe) {
             var self = this;
-            
+            var record = this._iframeRecords.get(iframe);
+            if (record) {
+                this._refreshIframeStatus(iframe, record);
+                return;
+            }
+
+            record = {
+                id: 'iframe-' + this._nextIframeId++,
+                src: iframe.src || 'inline',
+                loaded: false,
+                accessible: false
+            };
+            this._iframeRecords.set(iframe, record);
+            this.iframeStatus.push(record);
+
+            record.loadCleanup = this._listen(iframe, 'load', function() {
+                self._refreshIframeStatus(iframe, record);
+                self._log('iframe loaded', { src: record.src });
+            });
+            this._refreshIframeStatus(iframe, record);
+            this._log('iframe registered', { src: record.src });
+        },
+
+        _refreshIframeStatus: function(iframe, record) {
             try {
                 var iframeDoc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
-                
+                record.src = iframe.src || 'inline';
                 if (!iframeDoc) {
-                    self._log('Cannot access iframe (no document)', { src: iframe.src });
+                    record.loaded = false;
+                    record.accessible = false;
+                    record.error = 'no-document';
                     return;
                 }
-                
-                // Check if already instrumented
-                if (iframe.contentWindow.__waitless__) {
-                    self._log('iframe already instrumented', { src: iframe.src });
-                    return;
-                }
-                
-                // Note: Full injection would require eval'ing the entire script
-                // For now, we track iframe load/ready state
-                self.iframeStatus.push({
-                    src: iframe.src || 'inline',
-                    loaded: iframeDoc.readyState === 'complete',
-                    accessible: true
-                });
-                
-                iframe.addEventListener('load', function() {
-                    self._log('iframe loaded', { src: iframe.src });
-                    var status = self.iframeStatus.find(function(s) { return s.src === (iframe.src || 'inline'); });
-                    if (status) status.loaded = true;
-                });
-                
-                self._log('iframe registered', { src: iframe.src });
+                record.loaded = iframeDoc.readyState === 'complete';
+                record.accessible = true;
+                delete record.error;
             } catch (e) {
-                // Cross-origin iframe - cannot access
-                self.iframeStatus.push({
-                    src: iframe.src || 'inline',
-                    loaded: false,
-                    accessible: false,
-                    error: 'cross-origin'
-                });
-                self._log('Cannot access iframe (cross-origin)', { src: iframe.src });
+                record.src = iframe.src || 'inline';
+                record.loaded = false;
+                record.accessible = false;
+                record.error = 'cross-origin';
             }
+        },
+
+        _removeIframe: function(iframe) {
+            var record = this._iframeRecords.get(iframe);
+            if (!record) return;
+            if (record.loadCleanup) record.loadCleanup();
+            var idx = this.iframeStatus.indexOf(record);
+            if (idx > -1) this.iframeStatus.splice(idx, 1);
+            this._iframeRecords.delete(iframe);
+            this._log('iframe removed', { src: record.src });
         },
         
         // ===== PUBLIC API =====
         
         getStatus: function() {
+            var quietFor = Date.now() - this.lastMutationTime;
             return {
                 stable: this.isStable(),
                 pending_requests: this.pendingRequests,
                 last_mutation_time: this.lastMutationTime,
                 mutation_rate: this.getMutationRate(),  // mutations per second
+                dom_quiet_for_ms: quietFor,
+                dom_settle_time_ms: this.config.domSettleTime,
                 active_animations: this.activeAnimations + this.activeTransitions,
                 layout_shifting: this.layoutShifting,
+                layout_ready: !this.config.trackLayout || this.layoutReady,
                 pending_request_details: this.pendingRequestDetails.slice(),
                 // WebSocket/SSE status
                 active_websockets: this.activeWebSockets,
@@ -605,7 +737,7 @@ INSTRUMENTATION_SCRIPT = """
             if (this.pendingRequests > 0) return false;
             
             var timeSinceLastMutation = Date.now() - this.lastMutationTime;
-            if (timeSinceLastMutation < 100) return false;
+            if (timeSinceLastMutation < this.config.domSettleTime) return false;
             
             return true;
         },
@@ -618,6 +750,9 @@ INSTRUMENTATION_SCRIPT = """
         destroy: function() {
             this._observers.forEach(function(obs) {
                 obs.disconnect();
+            });
+            this._cleanupCallbacks.slice().forEach(function(cleanup) {
+                cleanup();
             });
             
             if (this._originalFetch) {

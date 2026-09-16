@@ -2,7 +2,6 @@
 Unit tests for JavaScript instrumentation.
 """
 
-import pytest
 from waitless.instrumentation import (
     INSTRUMENTATION_SCRIPT,
     CHECK_ALIVE_SCRIPT,

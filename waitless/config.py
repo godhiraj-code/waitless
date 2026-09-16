@@ -5,11 +5,38 @@ Provides sensible defaults with full customization options.
 """
 
 from dataclasses import dataclass, field
-from typing import Literal, Optional, List
+import math
+from numbers import Integral, Real
+from typing import Literal, List
 from .exceptions import ConfigurationError
 
 
 StrictnessLevel = Literal['strict', 'normal', 'relaxed']
+
+
+def _validate_finite_number(
+    name: str,
+    value: object,
+    *,
+    positive: bool = False,
+) -> float:
+    """Return a finite numeric value or raise a user-facing config error."""
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ConfigurationError(f"{name} must be a finite number, got {value!r}")
+
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        raise ConfigurationError(f"{name} must be finite, got {value!r}")
+    if positive and numeric <= 0:
+        raise ConfigurationError(f"{name} must be positive, got {value}")
+    if not positive and numeric < 0:
+        raise ConfigurationError(f"{name} must be non-negative, got {value}")
+    return numeric
+
+
+def _validate_timeout(value: object, name: str = "timeout") -> float:
+    """Validate configured and per-call timeout values consistently."""
+    return _validate_finite_number(name, value, positive=True)
 
 
 @dataclass
@@ -93,10 +120,9 @@ class StabilizationConfig:
     
     def _validate(self) -> None:
         """Validate all configuration values."""
-        if self.timeout <= 0:
-            raise ConfigurationError(f"timeout must be positive, got {self.timeout}")
+        timeout = _validate_timeout(self.timeout)
         
-        if self.timeout > 60:
+        if timeout > 60:
             import warnings
             warnings.warn(
                 f"timeout of {self.timeout}s is very high. "
@@ -104,37 +130,35 @@ class StabilizationConfig:
                 UserWarning
             )
         
-        if self.dom_settle_time < 0:
-            raise ConfigurationError(
-                f"dom_settle_time must be non-negative, got {self.dom_settle_time}"
-            )
-
-        if self.mutation_rate_threshold < 0:
-            raise ConfigurationError(
-                "mutation_rate_threshold must be non-negative, "
-                f"got {self.mutation_rate_threshold}"
-            )
+        _validate_finite_number("dom_settle_time", self.dom_settle_time)
+        _validate_finite_number(
+            "mutation_rate_threshold", self.mutation_rate_threshold
+        )
         
+        if (
+            isinstance(self.network_idle_threshold, bool)
+            or not isinstance(self.network_idle_threshold, Integral)
+        ):
+            raise ConfigurationError(
+                "network_idle_threshold must be a non-negative integer, "
+                f"got {self.network_idle_threshold!r}"
+            )
         if self.network_idle_threshold < 0:
             raise ConfigurationError(
-                f"network_idle_threshold must be non-negative, got {self.network_idle_threshold}"
+                "network_idle_threshold must be a non-negative integer, "
+                f"got {self.network_idle_threshold}"
             )
+
+        poll_interval = _validate_finite_number(
+            "poll_interval", self.poll_interval, positive=True
+        )
         
-        if self.poll_interval <= 0:
-            raise ConfigurationError(
-                f"poll_interval must be positive, got {self.poll_interval}"
-            )
-        
-        if self.poll_interval > self.timeout:
+        if poll_interval > timeout:
             raise ConfigurationError(
                 f"poll_interval ({self.poll_interval}) cannot exceed timeout ({self.timeout})"
             )
 
-        if self.websocket_quiet_time < 0:
-            raise ConfigurationError(
-                "websocket_quiet_time must be non-negative, "
-                f"got {self.websocket_quiet_time}"
-            )
+        _validate_finite_number("websocket_quiet_time", self.websocket_quiet_time)
         
         if self.strictness not in ('strict', 'normal', 'relaxed'):
             raise ConfigurationError(

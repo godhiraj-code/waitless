@@ -2,7 +2,6 @@
 Unit tests for stability signals.
 """
 
-import pytest
 import time
 from waitless.signals import (
     SignalType,
@@ -149,6 +148,33 @@ class TestSignalEvaluator:
         assert status.is_stable is False
         blocking = [s.signal_type for s in status.blocking_signals]
         assert SignalType.DOM_MUTATIONS in blocking
+
+    def test_zero_mutation_rate_still_requires_dom_quiet_period(self):
+        """A fresh observer must not report stability on its first poll."""
+        config = StabilizationConfig(dom_settle_time=0.1)
+        evaluator = SignalEvaluator(config)
+
+        recent = evaluator.evaluate(
+            {
+                'mutation_rate': 0,
+                'dom_quiet_for_ms': 0,
+                'pending_requests': 0,
+                'active_animations': 0,
+            },
+            time.time(),
+        )
+        settled = evaluator.evaluate(
+            {
+                'mutation_rate': 0,
+                'dom_quiet_for_ms': 150,
+                'pending_requests': 0,
+                'active_animations': 0,
+            },
+            time.time(),
+        )
+
+        assert recent.is_stable is False
+        assert settled.is_stable is True
     
     def test_network_threshold_allows_pending(self):
         """Test that network threshold allows some pending requests."""
@@ -198,3 +224,27 @@ class TestSignalEvaluator:
         
         # Should be unstable in strict mode due to animation
         assert status.is_stable is False
+
+    def test_strict_mode_waits_for_layout_baseline(self):
+        config = StabilizationConfig(strictness='strict')
+        evaluator = SignalEvaluator(config)
+
+        status = evaluator.evaluate(
+            {
+                'mutation_rate': 0,
+                'dom_quiet_for_ms': 200,
+                'pending_requests': 0,
+                'active_animations': 0,
+                'layout_shifting': False,
+                'layout_ready': False,
+            },
+            time.time(),
+        )
+
+        assert status.is_stable is False
+        layout = next(
+            signal
+            for signal in status.signals
+            if signal.signal_type == SignalType.LAYOUT_SHIFT
+        )
+        assert layout.details == "Waiting for layout baseline"

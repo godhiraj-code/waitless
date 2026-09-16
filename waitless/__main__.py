@@ -7,7 +7,6 @@ Provides the 'waitless doctor' command for diagnostics.
 import argparse
 import sys
 import json
-from datetime import datetime
 
 
 def main():

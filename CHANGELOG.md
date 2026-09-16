@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-09-16
+
+### Fixed
+- Recursively wrap and unwrap Selenium elements and Shadow Roots in script arguments, results, and descendant searches.
+- Fully tear down browser instrumentation, adapters, listeners, observers, timers, and patched APIs when stabilization is disabled.
+- Require the configured DOM quiet period before reporting stability and wait for an initial layout baseline in strict mode.
+- Validate finite numeric configuration and per-call timeout values and use monotonic timeout deadlines.
+- Make WebSocket, SSE, and iframe lifecycle tracking idempotent and safe for duplicate URLs.
+- Bound mutation history and remove URL credentials, query strings, and fragments from browser diagnostics.
+- Prevent debug mode from changing the host application's root logging configuration.
+
+### Changed
+- Reduce layout-monitoring overhead with weak element references, a lower sampling cadence, and strict-mode-only activation.
+- Add runtime browser regression coverage, Ruff CI checks, honest evidence-script failures, and Python 3.13/3.14 coverage.
+- Correct dependency wording and package metadata.
+
 ## [1.0.3] - 2026-08-30
 
 ### Fixed

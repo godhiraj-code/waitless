@@ -26,7 +26,7 @@ except ImportError:
     NoSuchWindowException = Exception
     SELENIUM_AVAILABLE = False
 
-from .config import StabilizationConfig, DEFAULT_CONFIG
+from .config import StabilizationConfig, DEFAULT_CONFIG, _validate_timeout
 from .signals import SignalEvaluator, StabilityStatus
 from .instrumentation import (
     INSTRUMENTATION_SCRIPT,
@@ -74,15 +74,18 @@ class StabilizationEngine:
         self._last_blocking_factors: Dict[str, Any] = {}
         self._timeline: list = []
         self._active_adapters: list = []
-        
+
         if self.config.debug_mode:
-            logging.basicConfig(level=logging.DEBUG)
+            # Enable this package's debug records without changing the host
+            # application's root logger or handler configuration.
             logger.setLevel(logging.DEBUG)
 
     def configure(self, config: StabilizationConfig) -> None:
         """Apply a new config and force browser instrumentation to be rebuilt."""
         self.config = config
         self.evaluator = SignalEvaluator(config)
+        if config.debug_mode:
+            logger.setLevel(logging.DEBUG)
         if self._instrumented:
             try:
                 self._uninstall_adapters()
@@ -98,8 +101,12 @@ class StabilizationEngine:
 
     def _browser_config(self) -> Dict[str, Any]:
         return {
-            'trackLayout': self.config.layout_stability,
+            'trackLayout': (
+                self.config.layout_stability
+                and self.config.strictness == 'strict'
+            ),
             'trackAnimations': self.config.animation_detection,
+            'domSettleTime': self.config.dom_settle_time * 1000,
             'trackWebSocket': self.config.track_websocket,
             'trackSSE': self.config.track_sse,
             'webSocketQuietTime': self.config.websocket_quiet_time * 1000,
@@ -225,17 +232,23 @@ class StabilizationEngine:
     
     def _wait_for_stability_impl(self, timeout: Optional[float] = None) -> StabilityStatus:
         """Internal implementation of stability waiting."""
-        effective_timeout = timeout or self.config.timeout
-        start_time = time.time()
+        effective_timeout = (
+            self.config.timeout
+            if timeout is None
+            else _validate_timeout(timeout, "timeout override")
+        )
+        start_time = time.monotonic()
+        deadline = start_time + effective_timeout
         
         self.ensure_instrumented()
         
         last_status: Optional[StabilityStatus] = None
         
         while True:
-            elapsed = time.time() - start_time
+            now = time.monotonic()
+            elapsed = now - start_time
             
-            if elapsed >= effective_timeout:
+            if now >= deadline:
                 # Timeout - collect diagnostic info and raise
                 self._handle_timeout(effective_timeout, last_status)
             
@@ -252,8 +265,11 @@ class StabilizationEngine:
                         "Lost connection to browser instrumentation"
                     )
             
-            current_time = time.time()
-            status = self.evaluator.evaluate(browser_state, current_time)
+            # Browser activity timestamps use epoch milliseconds, so signal
+            # evaluation must keep wall-clock time even though timeout
+            # accounting uses a monotonic deadline.
+            browser_epoch_time = time.time()
+            status = self.evaluator.evaluate(browser_state, browser_epoch_time)
             last_status = status
             self._last_status = status
             self._last_browser_state = browser_state
@@ -263,7 +279,9 @@ class StabilizationEngine:
                 self._debug(f"UI stable after {elapsed:.2f}s")
                 return status
             
-            time.sleep(self.config.poll_interval)
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(self.config.poll_interval, remaining))
     
     def _handle_timeout(
         self,
@@ -417,5 +435,23 @@ class StabilizationEngine:
         self._instrumented = False
         self._last_url = None
         self._last_status = None
+        self._last_browser_state = None
         self._last_blocking_factors = {}
         self._timeline = []
+
+    def teardown(self) -> None:
+        """Remove browser hooks and clear engine state; safe to call repeatedly."""
+        with self._lock:
+            has_browser_state = self._instrumented or bool(self._active_adapters)
+            if has_browser_state:
+                self._uninstall_adapters()
+                try:
+                    self.driver.execute_script(
+                        "if (window.__waitless__) { window.__waitless__.destroy(); }"
+                    )
+                except (JavascriptException, WebDriverException, NoSuchWindowException):
+                    # Closing or navigating the page already discards its hooks.
+                    pass
+
+            self._active_adapters = []
+            self.reset()

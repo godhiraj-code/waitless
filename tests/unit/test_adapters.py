@@ -4,7 +4,6 @@ Unit tests for framework adapters (React, Angular, Vue).
 
 import pytest
 from waitless.adapters import (
-    FrameworkAdapter,
     get_adapter,
     get_available_adapters,
     ReactAdapter,

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "waitless"
-version = "1.0.3"
+version = "1.0.4"
 description = "Reduce explicit waits in Selenium by evaluating UI stability signals"
 readme = "README.md"
 license = "MIT"
@@ -30,6 +30,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Testing",
     "Topic :: Software Development :: Quality Assurance",
 ]
@@ -42,6 +44,7 @@ Homepage = "https://www.dhirajdas.dev"
 Documentation = "https://github.com/godhiraj-code/waitless#readme"
 Repository = "https://github.com/godhiraj-code/waitless.git"
 Issues = "https://github.com/godhiraj-code/waitless/issues"
+Changelog = "https://github.com/godhiraj-code/waitless/blob/main/CHANGELOG.md"
 
 [project.scripts]
 waitless = "waitless.__main__:main"
@@ -50,8 +53,15 @@ waitless = "waitless.__main__:main"
 dev = [
     "pytest>=7.0",
     "build>=1.0",
+    "ruff>=0.12",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["waitless*"]
+
+[tool.ruff]
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

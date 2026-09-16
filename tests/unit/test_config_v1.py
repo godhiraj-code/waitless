@@ -2,7 +2,6 @@
 Unit tests for new v1.0 configuration options.
 """
 
-import pytest
 from waitless.config import StabilizationConfig
 
 

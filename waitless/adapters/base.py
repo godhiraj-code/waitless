@@ -6,7 +6,7 @@ Adapters detect when a framework has finished its internal work
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Optional
 
 
 class FrameworkAdapter(ABC):

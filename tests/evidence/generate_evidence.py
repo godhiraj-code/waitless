@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from waitless import stabilize, get_diagnostics
+from waitless import stabilize
 
 # Path to test fixture relative to this script
 FIXTURE_PATH = Path(__file__).parent.parent / "fixtures" / "shadow_dom_page.html"
@@ -31,11 +31,11 @@ def generate_evidence():
         btn.click()
         
         print("Waiting for Shadow DOM stability...")
-        start_time = time.time()
+        start_time = time.monotonic()
         
         # Poll for completion inside shadow root
         found = False
-        while (time.time() - start_time) < 5:
+        while (time.monotonic() - start_time) < 5:
             driver.wait_for_stability()
             
             # Check via JS if it's done
@@ -49,7 +49,7 @@ def generate_evidence():
                 break
             time.sleep(0.05)
             
-        duration = time.time() - start_time
+        duration = time.monotonic() - start_time
         print(f"Total Wait Duration: {duration:.2f}s")
         
         # Save screenshot to current working directory
@@ -57,8 +57,11 @@ def generate_evidence():
         driver.save_screenshot(screenshot_path)
         print(f"Evidence saved to: {os.path.abspath(screenshot_path)}")
         
-        diag = get_diagnostics(driver)
-        print("\nStability Verified: SUCCESS" if duration > 0.4 and found else "\nStability Verified: FAILURE")
+        if not found:
+            print("\nStability Verified: FAILURE")
+            raise RuntimeError("Shadow DOM completion marker was not detected")
+
+        print("\nStability Verified: SUCCESS")
 
     finally:
         driver.quit()
