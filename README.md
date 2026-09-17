@@ -6,7 +6,30 @@
 
 Reduce explicit waits and sleeps by automatically evaluating multiple UI stability signals.
 
+## TypeSafe smart-doctor POC branch
 
+This branch contains an experimental, opt-in TypeSafe advisor that prioritizes the
+first investigation after a Waitless stabilization timeout. It does not change the
+stabilization engine, alter configuration automatically, or add TypeSafe to Waitless's
+runtime dependencies.
+
+The synthetic ten-case evaluation run on September 17, 2026 produced:
+
+| Approach | Acceptable first investigation |
+|----------|-------------------------------:|
+| Existing doctor heuristic | 50% |
+| Corrected deterministic baseline | 90% |
+| TypeSafe provider (`jev-1.13.0`) | 100% |
+| Complete POC with local safety guards | 100% |
+
+These results establish that the integration works, not that it is ready for production.
+The promising result was one mixed-signal case where operator context let TypeSafe choose
+the expected network investigation while the fixed-order baseline chose DOM churn. The
+next decision gate is an evaluation using independently labeled diagnostics from real
+applications.
+
+See the [TypeSafe smart-doctor POC](examples/typesafe_doctor/README.md) for its safety
+boundary, setup, fixtures, full results, and reproduction commands.
 
 ## Installation
 

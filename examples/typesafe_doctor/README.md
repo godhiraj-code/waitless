@@ -13,6 +13,36 @@ or add TypeSafe to the package's runtime dependencies. The experiment compares:
 The distinction matters because observed activity is not always blocking. For example,
 animations are optional outside strict mode, and an open but quiet WebSocket is stable.
 
+## Current status
+
+The POC was exercised against the live TypeSafe service on September 17, 2026 using
+`typesafe-sdk==0.6.0` and the service-selected `jev-1.13.0` model.
+
+| Measurement | Result |
+|-------------|-------:|
+| Labeled synthetic cases | 10 |
+| Existing heuristic acceptable | 50% |
+| Corrected deterministic baseline acceptable | 90% |
+| TypeSafe provider acceptable | 100% |
+| Complete system acceptable | 100% |
+| Provider errors | 0 |
+| Local safety short-circuits | 4 |
+| Mean provider latency | 820 ms |
+| p95 provider latency | 996 ms |
+
+Four incomplete, contradictory, or already-stable cases were resolved locally without
+calling TypeSafe. TypeSafe handled the other six. It disagreed with the corrected
+baseline once: for `mixed_required_network`, the baseline selected DOM churn by fixed
+signal order, while TypeSafe used the explicitly authored operator context and selected
+the labeled network investigation. Three additional repetitions made the same selection,
+with confidence from `0.69` to `0.72` and latency from `899` to `950` ms.
+
+This is evidence to continue evaluating TypeSafe as an optional post-timeout advisor,
+not evidence to put it in the stabilization polling path or ship it as a production
+dependency. The suite is small, synthetic, and partially designed around known edge
+cases. A production decision requires independently labeled diagnostics from real
+applications.
+
 ## Safety boundary
 
 The TypeSafe provider receives an allowlisted payload containing:
@@ -54,15 +84,22 @@ python examples/typesafe_doctor/evaluate.py --provider scripted
 
 ## Run live with TypeSafe
 
-The current `typesafe-sdk==0.6.0` requires Python 3.10+, while Waitless supports Python
-3.9+. Keep the SDK in a separate demo environment so the published package remains
-unchanged:
+The POC was validated with `typesafe-sdk==0.6.0`, which requires Python 3.10+, while
+Waitless supports Python 3.9+. Keep the SDK in a separate demo environment so the
+published package remains unchanged:
 
 ```bash
-python3.10 -m venv .venv-typesafe
+python3 --version  # Must be 3.10 or newer for typesafe-sdk==0.6.0
+python3 -m venv .venv-typesafe
 .venv-typesafe/bin/pip install -e . typesafe-sdk==0.6.0
-export TYPESAFE_API_KEY='...'
+read -rsp "TypeSafe API key: " TYPESAFE_API_KEY
+echo
+export TYPESAFE_API_KEY
 ```
+
+The live provider sends the allowlisted payload to the external TypeSafe service. Review
+it with `--show-payload` first. Do not put the key in the repository, shell history,
+diagnostic JSON, or operator context.
 
 Run one reviewed fixture first:
 
@@ -89,6 +126,7 @@ Then run the labeled suite:
 
 ```bash
 .venv-typesafe/bin/python examples/typesafe_doctor/evaluate.py --provider typesafe
+unset TYPESAFE_API_KEY
 ```
 
 If `TYPESAFE_API_KEY` is missing, the live provider fails before importing the SDK or
