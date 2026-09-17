@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "config": {
+    "timeout": 10.0,
+    "strictness": "normal",
+    "animation_detection": true
+  },
+  "last_status": {
+    "is_stable": true,
+    "signals": [
+      {
+        "type": "CSS_ANIMATIONS",
+        "state": "UNSTABLE",
+        "value": 2,
+        "threshold": 0,
+        "mandatory": false
+      }
+    ],
+    "blocking": ["CSS_ANIMATIONS"]
+  },
+  "blocking_factors": {
+    "pending_requests": 0,
+    "active_animations": 2,
+    "layout_shifting": false
+  }
+}

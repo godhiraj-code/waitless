@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "config": {
+    "timeout": 10.0,
+    "dom_settle_time": 0.1,
+    "mutation_rate_threshold": 50.0,
+    "network_idle_threshold": 0,
+    "animation_detection": true,
+    "layout_stability": true,
+    "strictness": "normal",
+    "poll_interval": 0.05,
+    "track_websocket": false,
+    "track_sse": false,
+    "websocket_quiet_time": 0.5,
+    "framework_hooks": [],
+    "track_iframes": false
+  },
+  "last_status": {
+    "is_stable": false,
+    "timestamp": 1770000000.0,
+    "signals": [
+      {
+        "type": "DOM_MUTATIONS",
+        "state": "STABLE",
+        "value": 0,
+        "threshold": 50,
+        "mandatory": true,
+        "details": "secret DOM description that must not leave the process"
+      },
+      {
+        "type": "NETWORK_REQUESTS",
+        "state": "UNSTABLE",
+        "value": 3,
+        "threshold": 0,
+        "mandatory": true,
+        "details": "3 pending requests at a private account endpoint"
+      }
+    ],
+    "blocking": ["NETWORK_REQUESTS"]
+  },
+  "blocking_factors": {
+    "pending_requests": 3,
+    "pending_request_details": [
+      {
+        "url": "https://private.example.test/accounts/123?token=TOP_SECRET",
+        "type": "fetch"
+      }
+    ],
+    "active_animations": 0,
+    "layout_shifting": false,
+    "mutation_rate": 0
+  },
+  "timeline": [
+    {
+      "message": "Customer TOP_SECRET opened account 123",
+      "data": {"url": "https://private.example.test/accounts/123"}
+    }
+  ]
+}

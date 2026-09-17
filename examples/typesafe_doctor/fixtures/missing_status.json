@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "config": {
+    "timeout": 10.0,
+    "strictness": "normal",
+    "network_idle_threshold": 2
+  },
+  "last_status": null,
+  "blocking_factors": {
+    "pending_requests": 5,
+    "active_animations": 3,
+    "layout_shifting": true
+  },
+  "timeline": [
+    {"message": "secret-bearing event that must not enter the outbound state"}
+  ]
+}

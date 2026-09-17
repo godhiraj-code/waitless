@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "config": {
+    "timeout": 10.0,
+    "dom_settle_time": 0.1,
+    "mutation_rate_threshold": 50.0,
+    "network_idle_threshold": 0,
+    "animation_detection": true,
+    "layout_stability": true,
+    "strictness": "normal",
+    "poll_interval": 0.05,
+    "track_websocket": false,
+    "track_sse": false,
+    "websocket_quiet_time": 0.5,
+    "framework_hooks": [],
+    "track_iframes": false
+  },
+  "last_status": {
+    "is_stable": false,
+    "timestamp": 1770000001.0,
+    "signals": [
+      {
+        "type": "DOM_MUTATIONS",
+        "state": "STABLE",
+        "value": 2,
+        "threshold": 50,
+        "mandatory": true
+      },
+      {
+        "type": "NETWORK_REQUESTS",
+        "state": "UNSTABLE",
+        "value": 2,
+        "threshold": 0,
+        "mandatory": true
+      },
+      {
+        "type": "CSS_ANIMATIONS",
+        "state": "UNSTABLE",
+        "value": 4,
+        "threshold": 0,
+        "mandatory": false
+      }
+    ],
+    "blocking": ["NETWORK_REQUESTS"]
+  },
+  "blocking_factors": {
+    "pending_requests": 2,
+    "active_animations": 4,
+    "layout_shifting": false,
+    "mutation_rate": 2
+  }
+}

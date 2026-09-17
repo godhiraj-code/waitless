@@ -1,0 +1,74 @@
+{
+  "cases": [
+    {
+      "id": "network_only",
+      "file": "network_only.json",
+      "acceptable": ["INSPECT_NETWORK"],
+      "scripted_choice": "INSPECT_NETWORK"
+    },
+    {
+      "id": "optional_animation_network",
+      "file": "optional_animation_network.json",
+      "acceptable": ["INSPECT_NETWORK"],
+      "scripted_choice": "INSPECT_NETWORK"
+    },
+    {
+      "id": "strict_animation",
+      "file": "strict_animation.json",
+      "acceptable": ["INSPECT_ANIMATIONS"],
+      "scripted_choice": "INSPECT_ANIMATIONS"
+    },
+    {
+      "id": "optional_animation_stable",
+      "file": "optional_animation_stable.json",
+      "acceptable": ["INSUFFICIENT_EVIDENCE"],
+      "scripted_choice": "INSUFFICIENT_EVIDENCE"
+    },
+    {
+      "id": "idle_websocket",
+      "file": "idle_websocket.json",
+      "acceptable": ["INSUFFICIENT_EVIDENCE"],
+      "scripted_choice": "INSUFFICIENT_EVIDENCE"
+    },
+    {
+      "id": "busy_websocket",
+      "file": "busy_websocket.json",
+      "acceptable": ["INSPECT_REALTIME_ACTIVITY"],
+      "scripted_choice": "INSPECT_REALTIME_ACTIVITY"
+    },
+    {
+      "id": "mixed_dom_network",
+      "file": "mixed_dom_network.json",
+      "operator_context": {
+        "test_action": "Open the account dashboard after submitting the login form",
+        "application_notes": "The dashboard uses continuous analytics polling. Its cards should stop re-rendering before interaction.",
+        "known_background_activity": ["analytics polling"]
+      },
+      "acceptable": ["INSPECT_DOM_CHURN"],
+      "scripted_choice": "INSPECT_DOM_CHURN"
+    },
+    {
+      "id": "mixed_required_network",
+      "file": "mixed_required_network.json",
+      "operator_context": {
+        "test_action": "Open the account summary after choosing an account",
+        "application_notes": "The visible summary depends on a required account-data request. A live clock intentionally updates the DOM throughout the session.",
+        "known_background_activity": ["live clock DOM updates"]
+      },
+      "acceptable": ["INSPECT_NETWORK"],
+      "scripted_choice": "INSPECT_NETWORK"
+    },
+    {
+      "id": "missing_status",
+      "file": "missing_status.json",
+      "acceptable": ["INSUFFICIENT_EVIDENCE"],
+      "scripted_choice": "INSUFFICIENT_EVIDENCE"
+    },
+    {
+      "id": "contradictory_status",
+      "file": "contradictory_status.json",
+      "acceptable": ["INSUFFICIENT_EVIDENCE"],
+      "scripted_choice": "INSUFFICIENT_EVIDENCE"
+    }
+  ]
+}

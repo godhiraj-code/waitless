@@ -1,0 +1,7 @@
+{
+  "test_action": "Open the account summary after choosing an account",
+  "application_notes": "The visible summary depends on a required account-data request. A live clock intentionally updates the DOM throughout the session.",
+  "known_background_activity": [
+    "live clock DOM updates"
+  ]
+}

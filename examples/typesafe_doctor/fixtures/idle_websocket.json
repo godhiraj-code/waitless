@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "config": {
+    "timeout": 10.0,
+    "strictness": "normal",
+    "network_idle_threshold": 2,
+    "track_websocket": true,
+    "websocket_quiet_time": 0.5
+  },
+  "last_status": {
+    "is_stable": true,
+    "signals": [
+      {
+        "type": "DOM_MUTATIONS",
+        "state": "STABLE",
+        "value": 0,
+        "threshold": 50,
+        "mandatory": true
+      },
+      {
+        "type": "NETWORK_REQUESTS",
+        "state": "STABLE",
+        "value": 0,
+        "threshold": 2,
+        "mandatory": true
+      },
+      {
+        "type": "WEBSOCKET_ACTIVITY",
+        "state": "STABLE",
+        "value": {"active": 1, "time_since_activity_ms": 5000},
+        "threshold": 500,
+        "mandatory": true
+      }
+    ],
+    "blocking": []
+  },
+  "blocking_factors": {
+    "pending_requests": 0,
+    "active_websockets": 1,
+    "active_animations": 0,
+    "layout_shifting": false,
+    "mutation_rate": 0
+  }
+}

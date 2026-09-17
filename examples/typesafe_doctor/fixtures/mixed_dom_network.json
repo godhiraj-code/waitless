@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "config": {
+    "timeout": 10.0,
+    "dom_settle_time": 0.1,
+    "mutation_rate_threshold": 50.0,
+    "network_idle_threshold": 0,
+    "strictness": "normal",
+    "animation_detection": true
+  },
+  "last_status": {
+    "is_stable": false,
+    "signals": [
+      {
+        "type": "DOM_MUTATIONS",
+        "state": "UNSTABLE",
+        "value": 180,
+        "threshold": 50,
+        "mandatory": true
+      },
+      {
+        "type": "NETWORK_REQUESTS",
+        "state": "UNSTABLE",
+        "value": 1,
+        "threshold": 0,
+        "mandatory": true
+      }
+    ],
+    "blocking": ["DOM_MUTATIONS", "NETWORK_REQUESTS"]
+  },
+  "blocking_factors": {
+    "pending_requests": 1,
+    "recent_mutations": true,
+    "active_animations": 0,
+    "layout_shifting": false,
+    "mutation_rate": 180
+  }
+}
