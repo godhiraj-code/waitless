@@ -21,6 +21,25 @@ class RecordingDriver:
         return None
 
 
+def test_reinjection_sleep_respects_short_per_call_deadline(monkeypatch):
+    engine = StabilizationEngine(object(), StabilizationConfig(poll_interval=0.5))
+    engine.ensure_instrumented = Mock()
+    engine._get_browser_status = Mock(return_value=None)
+    engine._inject_instrumentation = Mock()
+    clock = [0.0]
+    sleeps = []
+    monkeypatch.setattr("waitless.engine.time.monotonic", lambda: clock[0])
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr("waitless.engine.time.sleep", sleep)
+    with pytest.raises(StabilizationTimeout):
+        engine.wait_for_stability(timeout=0.05)
+    assert sleeps == [0.05]
+
+
 @pytest.mark.parametrize("timeout", [0, -1, float("nan"), float("inf"), "1", True])
 def test_per_call_timeout_is_validated_before_browser_access(timeout):
     engine = StabilizationEngine(object())
