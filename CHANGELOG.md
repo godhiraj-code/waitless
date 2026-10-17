@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - Unreleased
+
+### Changed
+- Documentation and packaging metadata only; no behavior changes (version strings bumped).
+- README: problem-first opening, PyPI/Python/license badges, "When to use Waitless (and when not to)" comparison, FAQ and troubleshooting, and links to the blog posts and project page.
+- PyPI metadata: clearer summary, more search keywords and classifiers, project page as Homepage, Blog URL.
+
 ## [1.0.4] - 2026-09-16
 
 ### Fixed
