@@ -58,6 +58,7 @@ Repository = "https://github.com/godhiraj-code/waitless"
 Issues = "https://github.com/godhiraj-code/waitless/issues"
 Changelog = "https://github.com/godhiraj-code/waitless/blob/main/CHANGELOG.md"
 Blog = "https://www.dhirajdas.dev/blog/waitless-v1-end-of-flaky-tests"
+X = "https://x.com/dkkkkd"
 
 [project.scripts]
 waitless = "waitless.__main__:main"

@@ -9,7 +9,7 @@
 
 **Automatic UI stabilization for Selenium.** Reduce explicit waits and sleeps by automatically evaluating multiple UI stability signals.
 
-**Learn more:** [Waitless v1: the end of flaky tests](https://www.dhirajdas.dev/blog/waitless-v1-end-of-flaky-tests) · [Eliminating flaky tests with Waitless](https://www.dhirajdas.dev/blog/waitless-eliminate-flaky-tests) · [Project page](https://www.dhirajdas.dev/project/waitless)
+**Learn more:** [Waitless v1: the end of flaky tests](https://www.dhirajdas.dev/blog/waitless-v1-end-of-flaky-tests) · [Eliminating flaky tests with Waitless](https://www.dhirajdas.dev/blog/waitless-eliminate-flaky-tests) · [Project page](https://www.dhirajdas.dev/project/waitless) · [Follow @dkkkkd on X](https://x.com/dkkkkd)
 
 ## Installation
 
