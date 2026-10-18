@@ -1,12 +1,15 @@
 # Waitless
 
+[![PyPI version](https://img.shields.io/pypi/v/waitless.svg)](https://pypi.org/project/waitless/)
+[![Python versions](https://img.shields.io/pypi/pyversions/waitless.svg)](https://pypi.org/project/waitless/)
+[![License: MIT](https://img.shields.io/pypi/l/waitless.svg)](https://github.com/godhiraj-code/waitless/blob/main/LICENSE)
 [![CI](https://github.com/godhiraj-code/waitless/actions/workflows/ci.yml/badge.svg)](https://github.com/godhiraj-code/waitless/actions/workflows/ci.yml)
 
-**Automatic UI stabilization for Selenium**
+**Stop flaky Selenium tests caused by clicking before the page is ready.** Waitless wraps your WebDriver so `get`, `find_element` and `click` wait for the DOM and network to settle (and, in strict mode, for animations and layout too): no `time.sleep()`, less `WebDriverWait` boilerplate, and fewer `StaleElementReferenceException`, `ElementClickInterceptedException` and `NoSuchElementException` failures caused by timing races.
 
-Reduce explicit waits and sleeps by automatically evaluating multiple UI stability signals.
+**Automatic UI stabilization for Selenium.** Reduce explicit waits and sleeps by automatically evaluating multiple UI stability signals.
 
-
+**Learn more:** [Waitless v1: the end of flaky tests](https://www.dhirajdas.dev/blog/waitless-v1-end-of-flaky-tests) · [Eliminating flaky tests with Waitless](https://www.dhirajdas.dev/blog/waitless-eliminate-flaky-tests) · [Project page](https://www.dhirajdas.dev/project/waitless)
 
 ## Installation
 
@@ -49,6 +52,7 @@ Automation tests fail because interactions happen while the UI is still changing
 | Approach | Problem |
 |----------|---------|
 | `time.sleep(2)` | Too slow, still fails sometimes |
+| `driver.implicitly_wait(10)` | Only retries element lookup until the element exists; it does not wait for pending requests, animations or DOM churn |
 | `WebDriverWait` | Requires an explicit condition at each synchronization point |
 | Retries | Masks the real problem, adds flakiness |
 
@@ -66,6 +70,28 @@ Waitless evaluates page-level stability signals:
 
 Before supported interactions, Waitless polls until the enabled mandatory signals
 meet their configured thresholds.
+
+## When to use Waitless (and when not to)
+
+**Good fit:**
+
+- Selenium 4 test suites in Python, on single-page apps (React, Angular, Vue) where clicks land while the page is still re-rendering
+- Pages with AJAX/fetch calls, lazy-loaded content or long-polling that make tests pass locally and fail in CI
+- Suites full of `time.sleep()` calls or copy-pasted `WebDriverWait` boilerplate that you want to remove
+
+**Not a good fit:**
+
+- **Playwright.** Playwright already auto-waits for elements to be actionable, and Waitless only supports Selenium.
+- **Specific business conditions.** If a test must wait for "the order status says Shipped", keep a `WebDriverWait` with an explicit condition for that. Waitless waits for the page to be *stable*, not for your app to reach a particular state. The two work well together.
+- **Async Selenium clients or Service Worker traffic.** See [Current Limitations](#current-limitations).
+
+| | `time.sleep` | `implicitly_wait` | `WebDriverWait` | Waitless |
+|---|---|---|---|---|
+| Waits for element presence | No (fixed delay) | Yes | Yes (per condition) | Yes (`find_element` retries until timeout) |
+| Waits for pending XHR/fetch | No | No | Only if you write the condition | Yes |
+| Waits for DOM mutations to settle | No | No | Only if you write the condition | Yes |
+| Waits for animations/layout | No | No | Only if you write the condition | Strict mode |
+| Code needed per interaction | One sleep | None | One condition | None after `stabilize(driver)` |
 
 ## Configuration
 
@@ -244,7 +270,39 @@ timeout after the page-stability wait.
 - **Sync only** - No async/await support yet
 - **No Service Workers** - SW network requests not intercepted
 
-See [CHANGELOG.md](CHANGELOG.md) for version history.
+See [CHANGELOG.md](https://github.com/godhiraj-code/waitless/blob/main/CHANGELOG.md) for version history.
+
+## FAQ and Troubleshooting
+
+**Does it work with pytest?**
+Yes. Waitless has no runner dependency; wrap the driver in your fixture:
+
+```python
+import pytest
+from selenium import webdriver
+from waitless import stabilize
+
+@pytest.fixture
+def driver():
+    d = stabilize(webdriver.Chrome())
+    yield d
+    d.quit()
+```
+
+**Does it work with Shadow DOM?**
+Yes, for open shadow roots. The MutationObserver also watches open shadow roots, and elements and shadow roots returned from searches are wrapped so they auto-wait too. Closed shadow roots are not visible to page JavaScript, so they are not observed.
+
+**Does it work with SeleniumBase or other wrappers?**
+It isn't tested against SeleniumBase in this repository. `stabilize()` accepts any WebDriver-like object that has `execute_script`, `find_element` and `current_url`, so you can wrap the underlying Selenium driver. If a framework needs a real `WebDriver` instance, pass it `driver.unwrapped`.
+
+**My app has WebSockets, analytics beacons or long polling and never goes idle. I get `StabilizationTimeout`.**
+Run the diagnostics (see [Diagnostics](#diagnostics)) to see which signal is blocking. WebSocket/SSE tracking is off by default, so it doesn't block unless you enable it. For background XHR/fetch traffic, raise `network_idle_threshold` or use `StabilizationConfig.relaxed()` (DOM only). For infinite spinners, set `animation_detection=False`.
+
+**How much slower does it make my tests?**
+Waitless polls every 50 ms (`poll_interval`) and returns as soon as the enabled signals are stable, after a 0.1 s DOM quiet period (`dom_settle_time`). On a settled page that's a short pause per interaction; on a busy page it waits as long as the page is busy, up to `timeout` (10 s by default). Measure it in your environment with `python benchmarks/overhead_test.py` from a repository checkout.
+
+**`isinstance(element, WebElement)` is `False`.**
+That's expected: the stabilized driver returns wrapped elements. Call `.unwrap()` on an element, or use `driver.unwrapped` for the original driver. See [Wrapped Elements](#wrapped-elements).
 
 ## API Reference
 
@@ -268,4 +326,4 @@ See [CHANGELOG.md](CHANGELOG.md) for version history.
 
 ## License
 
-MIT
+MIT. See [LICENSE](https://github.com/godhiraj-code/waitless/blob/main/LICENSE).

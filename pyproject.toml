@@ -1,11 +1,11 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "waitless"
-version = "1.0.4"
-description = "Reduce explicit waits in Selenium by evaluating UI stability signals"
+version = "1.0.5"
+description = "Auto-wait for Selenium in Python: fix flaky tests by waiting for DOM, network, animation and layout stability instead of time.sleep."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
@@ -19,7 +19,16 @@ keywords = [
     "ui-testing",
     "wait",
     "stability",
-    "flaky-tests"
+    "flaky-tests",
+    "selenium-python",
+    "webdriver",
+    "auto-wait",
+    "explicit-wait",
+    "time-sleep",
+    "pytest",
+    "test-automation",
+    "StaleElementReferenceException",
+    "ElementClickInterceptedException"
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -32,19 +41,23 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3 :: Only",
     "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Testing :: Acceptance",
     "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
 ]
 dependencies = [
     "selenium>=4.0",
 ]
 
 [project.urls]
-Homepage = "https://www.dhirajdas.dev"
+Homepage = "https://www.dhirajdas.dev/project/waitless"
 Documentation = "https://github.com/godhiraj-code/waitless#readme"
-Repository = "https://github.com/godhiraj-code/waitless.git"
+Repository = "https://github.com/godhiraj-code/waitless"
 Issues = "https://github.com/godhiraj-code/waitless/issues"
 Changelog = "https://github.com/godhiraj-code/waitless/blob/main/CHANGELOG.md"
+Blog = "https://www.dhirajdas.dev/blog/waitless-v1-end-of-flaky-tests"
 
 [project.scripts]
 waitless = "waitless.__main__:main"

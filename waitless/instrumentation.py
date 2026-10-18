@@ -12,7 +12,7 @@ INSTRUMENTATION_SCRIPT = """
     
     window.__waitless__ = {
         _initialized: true,
-        _version: '1.0.4',
+        _version: '1.0.5',
         
         // State tracking
         pendingRequests: 0,
