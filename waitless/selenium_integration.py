@@ -34,17 +34,13 @@ logger = logging.getLogger('waitless')
 
 FINGERPRINT_SCRIPT = """
 const element = arguments[0];
-const matches = arguments[1];
 if (!element.isConnected) return null;
-const index = matches === null ? null : matches.indexOf(element);
-if (index === -1) return null;
 const text = node => node && node.getClientRects().length
     ? (node.innerText || '').trim().slice(0, 200) : '';
 return [
     element.tagName.toLowerCase(),
     text(element),
     ['id', 'name', 'data-testid', 'aria-label'].map(name => element.getAttribute(name)),
-    index,
     text(element.parentElement)
 ];
 """
@@ -94,7 +90,6 @@ def _find_element(context, engine, args, kwargs, *, retry_missing=False):
     locator = f"{args}" + (f" {kwargs}" if kwargs else "")
     error = NoSuchElementException(f"Element not found within {timeout}s: {locator}")
     find = functools.partial(context.find_element, *args, **kwargs)
-    find_matches = functools.partial(context.find_elements, *args, **kwargs)
     while True:
         _settle(engine, deadline, error)
         element = _lookup(
@@ -103,7 +98,7 @@ def _find_element(context, engine, args, kwargs, *, retry_missing=False):
         )
         try:
             return StabilizedWebElement(
-                element, engine, refind=find, find_matches=find_matches, deadline=deadline,
+                element, engine, refind=find, deadline=deadline,
             )
         except StaleElementReferenceException as exc:
             # The caller has not received an element yet. Retry a redraw during
@@ -158,14 +153,12 @@ class StabilizedWebElement:
         element: 'WebElement',
         engine: StabilizationEngine,
         refind: Optional[Callable[[], 'WebElement']] = None,
-        find_matches: Optional[Callable[[], List['WebElement']]] = None,
         *,
         deadline: Optional[float] = None,
     ):
         self._element = element
         self._engine = engine
         self._refind = refind
-        self._find_matches = find_matches
         # Capture while the original is live, not after a stale-reference error.
         self._fingerprint = None
         if refind:
@@ -178,10 +171,8 @@ class StabilizedWebElement:
 
         error = TimeoutException("Timed out reading element fingerprint")
         _remaining(deadline, error)
-        matches = self._find_matches() if self._find_matches else None
-        _remaining(deadline, error)
         fingerprint = self._engine.driver.execute_script(
-            FINGERPRINT_SCRIPT, element, matches,
+            FINGERPRINT_SCRIPT, element,
         )
         _remaining(deadline, error)
         if fingerprint is None:
@@ -234,11 +225,9 @@ class StabilizedWebElement:
 
         timeout = self._engine.config.timeout
         deadline = time.monotonic() + timeout
-        tag, text = (
-            self._fingerprint[:2] if self._fingerprint is not None
-            else self._capture_fingerprint(self._element, deadline)[:2]
-        )
-        error = TimeoutException(f"Element <{tag}> {text!r} was not enabled after {timeout}s")
+        tag, text = self._fingerprint[:2] if self._fingerprint is not None else (None, None)
+        label = f"Element <{tag}> {text!r}" if tag is not None else "Element"
+        error = TimeoutException(f"{label} was not enabled after {timeout}s")
         for attempt in range(2):
             _settle(self._engine, deadline, error)
             if attempt:
@@ -266,6 +255,21 @@ class StabilizedWebElement:
             except StaleElementReferenceException:
                 if attempt or self._refind is None:
                     raise
+            except TimeoutException as exc:
+                if exc is error and self._fingerprint is None:
+                    # List/script results need no identity snapshot on success.
+                    # Only enrich an actual enabled timeout, without another wait
+                    # or retry. A vanished element must not mask the original error.
+                    try:
+                        fingerprint = self._engine.driver.execute_script(
+                            FINGERPRINT_SCRIPT, self._element,
+                        )
+                    except StaleElementReferenceException:
+                        fingerprint = None
+                    if fingerprint is not None:
+                        tag, text = fingerprint[:2]
+                        error.msg = f"Element <{tag}> {text!r} was not enabled after {timeout}s"
+                raise
     
     @property
     def wrapped_element(self) -> 'WebElement':

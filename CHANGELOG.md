@@ -16,8 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Re-find elements with the same locator after the page settles, so list redraws during stabilization do not return an outdated element.
 - Retry a locator-backed wrapped click once after a stale element reference, settling before the retry lookup and waiting through a temporarily empty list.
-- Capture tag, visible text, identifying attributes, locator-match index, and parent text in the fingerprint; refuse reordered rows even when their buttons have identical labels.
-- Read fingerprint fields in one browser script call within the existing deadline, cap element and trimmed parent text at 200 characters, and handle a redraw during the read.
+- Capture tag, visible text, identifying attributes, and parent text in the fingerprint; refuse reordered rows even when their buttons have identical labels.
+- Avoid scanning all locator matches during `find_element()` and stale retries; skip fingerprint reads for successful clicks on elements returned by `find_elements()` or scripts.
+- Read stale-retry fingerprint fields in one browser script call within the existing deadline, cap element and trimmed parent text at 200 characters, and handle a redraw during the read.
 - Report that an element is no longer on the page when it permanently disappears before a click retry. Preserve Selenium's original not-found diagnostics for unsuccessful lookups.
 - Share one timeout deadline across each `click()` or `find_element()` call's stabilization, polling, and retry waits.
 - Add local-browser and unit regressions for list redraws, reordered targets, transient empty lists, disabled overlays, retry limits, and total timeout budgets.
