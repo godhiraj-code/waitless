@@ -228,20 +228,32 @@ is no longer on the page instead of reporting that it was not enabled.
 
 Elements returned by `find_element()` retain their locator and a fingerprint
 captured while the element is live: tag name, visible text, the `id`, `name`,
-`data-testid`, and `aria-label` attributes when present, its index among all
-matches of the locator, and its parent's trimmed text. Element and parent text
-are capped at 200 characters in the browser. Fingerprint fields are read in one
-script call within the existing timeout budget, using the locator's matches
-to determine the index. A stale click can retry
-once: Waitless waits for the page to settle, looks up the candidate using the
+`data-testid`, and `aria-label` attributes when present, and its parent's trimmed
+text. Element and parent text are capped at 200 characters in the browser.
+Fingerprint fields are read in one
+script call within the existing timeout budget, without scanning all matches
+of the locator. A stale click can retry once: Waitless waits for the page to
+settle, looks up the candidate using the
 same locator, and checks its fingerprint before clicking. If the fingerprint
 differs, Waitless raises `StaleElementReferenceException` explaining that it
 refused to click a different element. Identical replacements can be retried;
 elements indistinguishable by these fields cannot be distinguished by this check.
 
+Changes to surrounding row text can also cause refusal: if a button is replaced
+and its parent's text changes from `Cart (1)` to `Cart (2)`, the stale retry raises
+`StaleElementReferenceException`, the same exception plain Selenium raises for a
+stale element. Use an ID or a row-scoped locator to target the intended button
+instead of an ambiguous first match. A specific locator does not bypass the
+parent-text check, so it cannot guarantee a retry after surrounding text changes.
+If that change is expected, explicitly find the element again after the update.
+
 Elements returned by `find_elements()` or `execute_script()` (including
 `execute_async_script()`) do not retain a locator and do not retry stale clicks.
-Their clicks still wait for stability and enabled state. They behave like
+Their clicks still wait for stability and enabled state. Successful clicks do
+not read a fingerprint. If the enabled wait times out, one diagnostic script read
+adds the element's tag and text to the error; this read adds a WebDriver round trip
+after the wait budget expires. If the element has become stale, the error retains
+a generic element label. They behave like
 WebElements but:
 
 - `isinstance(element, WebElement)` returns `False`

@@ -273,8 +273,8 @@ def test_fingerprint_snapshot_caps_text_in_single_browser_read(driver, local_pag
 
     assert len(snapshots) == 1
     assert snapshots[0][1] == 'X' * 200
-    assert snapshots[0][4] == 'X' * 200
-    assert element._fingerprint[3] == 0
+    assert snapshots[0][3] == 'X' * 200
+    assert len(element._fingerprint) == 4
 
 
 def test_find_recovers_when_element_goes_stale_during_snapshot(driver, local_page, monkeypatch):
@@ -298,3 +298,44 @@ def test_find_recovers_when_element_goes_stale_during_snapshot(driver, local_pag
     assert len(reads) == 2
     assert button.get_attribute('data-generation') == 'fresh'
     assert driver.find_element(By.ID, 'result').text == 'clicked'
+
+
+def test_settled_find_element_with_2000_matches_takes_under_100ms(driver, local_page, record_property):
+    wrapped = stabilize(driver)
+    wrapped.get(local_page)
+    driver.execute_script("""
+        document.querySelector('#list').innerHTML = Array.from({length: 2000}, (_, i) =>
+            '<div><button class="many">Button ' + i + '</button></div>').join('');
+    """)
+    wrapped.wait_for_stability()
+    assert driver.execute_script("return document.querySelectorAll('.many').length") == 2000
+
+    started = time.perf_counter()
+    button = wrapped.find_element(By.CSS_SELECTOR, '.many')
+    elapsed = time.perf_counter() - started
+
+    record_property('find_element_ms', elapsed * 1000)
+    print(f'2000-match settled find_element: {elapsed * 1000:.2f} ms')
+    assert button.text == 'Button 0'
+    assert elapsed < 0.1, f'Settled find_element took {elapsed * 1000:.2f} ms'
+
+
+@pytest.mark.parametrize('locator', [(By.ID, 'cart'), (By.CSS_SELECTOR, '#cart-row button')])
+def test_changed_parent_text_refuses_stale_retry_even_with_specific_locator(driver, local_page, locator):
+    wrapped = stabilize(driver)
+    wrapped.get(local_page)
+    driver.execute_script("""
+        document.querySelector('#list').innerHTML = `<div id="cart-row">Cart (1)
+            <button id="cart" onclick="document.querySelector('#result').textContent='clicked'">
+            Checkout</button></div>`;
+    """)
+    button = wrapped.find_element(*locator)
+    driver.execute_script("""
+        const row = document.querySelector('#cart-row');
+        row.innerHTML = row.innerHTML.replace('Cart (1)', 'Cart (2)');
+    """)
+
+    with pytest.raises(StaleElementReferenceException, match='Element changed'):
+        button.click()
+
+    assert driver.find_element(By.ID, 'result').text == ''

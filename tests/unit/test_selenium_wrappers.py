@@ -43,16 +43,13 @@ class FakeDriver:
 
 @pytest.fixture
 def engine():
-    def fingerprint(script, element, matches):
+    def fingerprint(script, element):
         assert script == selenium_integration.FINGERPRINT_SCRIPT
         if element.stale:
             raise StaleElementReferenceException()
-        if matches is not None and element not in matches:
-            return None
         return [
             element.tag_name, element.text.strip()[:200],
             [element.attributes.get(name) for name in ('id', 'name', 'data-testid', 'aria-label')],
-            matches.index(element) if matches is not None else None,
             element.parent_text.strip()[:200],
         ]
 
@@ -188,7 +185,6 @@ def test_unstabilize_tears_down_engine_for_original_driver(engine):
 def test_find_element_refinds_after_settling_with_same_locator(engine, context):
     raw = FakeDriver() if context == "driver" else FakeWebElement()
     first, fresh = FakeWebElement(), FakeWebElement()
-    raw.find_elements.return_value = [fresh]
     events = []
     raw.find_element.side_effect = lambda *a, **kw: events.append("find") or (
         first if events.count("find") == 1 else fresh
@@ -206,6 +202,7 @@ def test_find_element_refinds_after_settling_with_same_locator(engine, context):
     assert result.unwrap() is fresh
     assert events == ["settle", "find", "settle", "find"]
     assert raw.find_element.call_count == 2
+    raw.find_elements.assert_not_called()
     for call in raw.find_element.call_args_list:
         assert call.kwargs == {"by": "css selector", "value": "#button"}
 
@@ -383,18 +380,13 @@ def test_find_missing_polling_uses_only_remaining_deadline(engine, clock):
     assert raw.find_element.call_count == 2
 
 
-@pytest.mark.parametrize('field', ['index', 'parent_text'])
-def test_stale_retry_refuses_changed_row_context(engine, field):
-    first, replacement, other = FakeWebElement(), FakeWebElement(), FakeWebElement()
+def test_stale_retry_refuses_changed_row_context(engine):
+    first, replacement = FakeWebElement(), FakeWebElement()
     first.text = replacement.text = 'Delete'
     first.is_enabled.side_effect = StaleElementReferenceException()
-    if field == 'parent_text':
-        replacement.parent_text = 'Banana row'
-    matches = Mock(side_effect=[
-        [first, other], [other, replacement] if field == 'index' else [replacement, other],
-    ])
+    replacement.parent_text = 'Banana row'
     wrapped = StabilizedWebElement(
-        first, engine, refind=Mock(return_value=replacement), find_matches=matches,
+        first, engine, refind=Mock(return_value=replacement),
     )
 
     with pytest.raises(StaleElementReferenceException, match='Element changed'):
@@ -405,38 +397,32 @@ def test_stale_retry_refuses_changed_row_context(engine, field):
 
 def test_fingerprint_uses_one_script_and_no_attribute_calls(engine):
     element = FakeWebElement()
-    matches = Mock(return_value=[element])
 
     wrapped = StabilizedWebElement(
-        element, engine, refind=Mock(return_value=element), find_matches=matches,
+        element, engine, refind=Mock(return_value=element),
     )
 
     engine.driver.execute_script.assert_called_once_with(
-        selenium_integration.FINGERPRINT_SCRIPT, element, [element],
+        selenium_integration.FINGERPRINT_SCRIPT, element,
     )
-    matches.assert_called_once_with()
     element.get_attribute.assert_not_called()
-    assert wrapped._fingerprint[3] == 0
+    assert wrapped._fingerprint[3] == 'Apple row'
 
 
-@pytest.mark.parametrize('slow_step', ['matches', 'script'])
-def test_fingerprint_reads_obey_find_deadline(engine, clock, slow_step):
+def test_fingerprint_reads_obey_find_deadline(engine, clock):
     engine.config.timeout = 2.0
     engine.wait_for_stability.side_effect = lambda **kw: clock.advance(0.6)
     raw, element = FakeDriver(), FakeWebElement()
     raw.find_element.return_value = element
-    raw.find_elements.return_value = [element]
-    if slow_step == 'matches':
-        raw.find_elements.side_effect = lambda *a: clock.advance(0.9) or [element]
-    else:
-        read = engine.driver.execute_script.side_effect
-        engine.driver.execute_script.side_effect = lambda *a: clock.advance(0.9) or read(*a)
+    read = engine.driver.execute_script.side_effect
+    engine.driver.execute_script.side_effect = lambda *a: clock.advance(0.9) or read(*a)
 
     with pytest.raises(TimeoutException, match='Timed out reading element fingerprint'):
         StabilizedWebDriver(raw, engine).find_element('id', 'action')
 
     assert clock.now == pytest.approx(2.1)
-    assert engine.driver.execute_script.call_count == (0 if slow_step == 'matches' else 1)
+    engine.driver.execute_script.assert_called_once()
+    raw.find_elements.assert_not_called()
 
 
 def test_find_recovers_stale_fingerprint_read_within_same_deadline(engine, clock):
@@ -444,7 +430,6 @@ def test_find_recovers_stale_fingerprint_read_within_same_deadline(engine, clock
     first, replacement = FakeWebElement(), FakeWebElement()
     first.stale = True
     raw.find_element.side_effect = [first, first, replacement, replacement]
-    raw.find_elements.side_effect = [[first], [replacement]]
 
     wrapped = StabilizedWebDriver(raw, engine).find_element('id', 'action')
 
@@ -471,7 +456,6 @@ def test_retry_does_not_click_after_stale_fingerprint_read(engine):
 def test_repeated_stale_snapshots_do_not_restart_find_deadline(engine, clock):
     raw, element = FakeDriver(), FakeWebElement()
     raw.find_element.return_value = element
-    raw.find_elements.return_value = [element]
     engine.driver.execute_script.return_value = None
     engine.driver.execute_script.side_effect = None
 
@@ -507,3 +491,73 @@ def test_find_timeout_before_lookup_omits_empty_kwargs(engine, clock):
     assert "('id', 'action')" in caught.value.msg
     assert '{}' not in caught.value.msg
     raw.find_element.assert_not_called()
+
+
+def test_find_and_stale_retry_never_scan_all_matches(engine):
+    raw = FakeDriver()
+    first, replacement = FakeWebElement(), FakeWebElement()
+    raw.find_element.side_effect = [first, first, replacement]
+    first.click.side_effect = StaleElementReferenceException()
+
+    button = StabilizedWebDriver(raw, engine).find_element('css selector', '.button')
+    button.click()
+
+    raw.find_elements.assert_not_called()
+    replacement.click.assert_called_once_with()
+    assert engine.driver.execute_script.call_count == 2
+
+
+@pytest.mark.parametrize('context', ['driver', 'element', 'shadow_root', 'script'])
+def test_elements_without_locator_skip_fingerprint_on_successful_click(engine, context):
+    raw, element = FakeDriver(), FakeWebElement()
+    raw.find_elements.return_value = [element]
+    if context == 'driver':
+        button = StabilizedWebDriver(raw, engine).find_elements('css selector', '.button')[0]
+    elif context == 'script':
+        raw.execute_script.return_value = element
+        button = StabilizedWebDriver(raw, engine).execute_script('return button')
+    else:
+        parent = FakeWebElement()
+        parent.find_elements.return_value = [element]
+        search = (
+            StabilizedWebElement(parent, engine) if context == 'element'
+            else selenium_integration._StabilizedSearchContext(parent, engine)
+        )
+        button = search.find_elements('css selector', '.button')[0]
+    # Even a briefly disabled element that later succeeds needs no snapshot.
+    element.is_enabled.side_effect = [False, True, True]
+
+    button.click()
+    button.click()
+
+    assert element.click.call_count == 2
+    engine.driver.execute_script.assert_not_called()
+
+
+@pytest.mark.parametrize('stale_diagnostic', [False, True])
+def test_list_element_reads_fingerprint_only_for_enabled_timeout(engine, clock, stale_diagnostic):
+    raw, element = FakeDriver(), FakeWebElement()
+    raw.find_elements.return_value = [element]
+    element.is_enabled.return_value = False
+    button = StabilizedWebDriver(raw, engine).find_elements('css selector', '.button')[0]
+    read = engine.driver.execute_script.side_effect
+
+    def diagnostic(*args):
+        assert clock.now == pytest.approx(engine.config.timeout)
+        if stale_diagnostic:
+            raise StaleElementReferenceException()
+        return read(*args)
+
+    engine.driver.execute_script.side_effect = diagnostic
+    engine.driver.execute_script.assert_not_called()
+    message = (
+        'Element was not enabled after 0.1s' if stale_diagnostic
+        else "Element <button> 'Apple' was not enabled after 0.1s"
+    )
+    with pytest.raises(TimeoutException, match=message):
+        button.click()
+
+    engine.driver.execute_script.assert_called_once_with(
+        selenium_integration.FINGERPRINT_SCRIPT, element,
+    )
+    element.click.assert_not_called()
