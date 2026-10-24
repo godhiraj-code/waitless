@@ -5,13 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.6] - 2026-10-24
+## [1.1.0] - 2026-10-24
+
+### Changed
+- Set the default and strict network idle thresholds to zero so all tracked XHR/fetch requests finish before interactions.
+- Upgrade note: apps with constant polling or analytics can set `network_idle_threshold=2` to restore the previous allowance of up to two pending requests.
 
 ### Fixed
 - Re-find elements with the same locator after the page settles, so list redraws during stabilization do not return an outdated element.
-- Retry a locator-backed wrapped click once after a stale element reference, and wait for the element to be enabled using the configured timeout and polling interval.
-- Set the default and strict network idle thresholds to zero so delayed XHR/fetch responses finish before interactions. Background traffic can still be allowed with an explicit threshold.
-- Add local-browser regressions for delayed list replacement and disabled buttons covered by an overlay during a delayed fetch, plus unit coverage for stale retries and enabled-state timeouts.
+- Retry a locator-backed wrapped click once after a stale element reference, settling before the retry lookup and waiting through a temporarily empty list.
+- Capture the original element's tag, visible text, and identifying attributes while it is live; refuse a stale retry if the replacement fingerprint differs.
+- Wait for the element to be enabled, with a timeout message identifying the element and configured duration.
+- Share one timeout deadline across each `click()` or `find_element()` call's stabilization, polling, and retry waits.
+- Add local-browser and unit regressions for list redraws, reordered targets, transient empty lists, disabled overlays, retry limits, and total timeout budgets.
 
 ## [1.0.5] - 2026-10-18
 

@@ -6,6 +6,9 @@ import time
 
 import pytest
 from selenium import webdriver
+from selenium.common.exceptions import (
+    NoSuchElementException, StaleElementReferenceException, TimeoutException,
+)
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 
@@ -39,6 +42,13 @@ function startOverlay() {
         document.querySelector('#action').disabled = false;
     });
 }
+function renderFruits(reverse) {
+    const fruits = reverse ? ['banana', 'apple'] : ['apple', 'banana'];
+    document.querySelector('#list').innerHTML = fruits.map(fruit =>
+        '<button class="fruit" data-testid="' + fruit + '" onclick="' +
+        'document.querySelector(\'#result\').textContent=\'' + fruit + '\'">' +
+        fruit + '</button>').join('');
+}
 </script></body></html>"""
 
 
@@ -46,8 +56,8 @@ function startOverlay() {
 def local_page():
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path in ('/delay', '/slow'):
-                time.sleep(0.5 if self.path == '/delay' else 1.5)
+            if self.path in ('/delay', '/slow', '/empty'):
+                time.sleep({'/delay': 0.5, '/slow': 1.5, '/empty': 0.4}[self.path])
                 body = b'ready'
             else:
                 body = PAGE
@@ -128,3 +138,74 @@ def test_click_waits_for_disabled_button_and_delayed_fetch_overlay(driver, local
     assert driver.find_element(By.ID, 'result').text == 'clicked'
     assert driver.find_elements(By.ID, 'overlay') == []
     assert driver.execute_script('return window.__waitless__.pendingRequests') == 0
+
+
+def test_stale_retry_refuses_reordered_list_element(driver, local_page):
+    wrapped = stabilize(driver)
+    wrapped.get(local_page)
+    driver.execute_script('renderFruits(false)')
+    apple = wrapped.find_element(By.CSS_SELECTOR, '.fruit')
+    assert apple.text == 'apple'
+    driver.execute_script('renderFruits(true)')
+
+    with pytest.raises(StaleElementReferenceException, match='Element changed; Waitless refused'):
+        apple.click()
+
+    assert driver.find_element(By.ID, 'result').text == ''
+
+
+@pytest.mark.parametrize('pending_fetch', [True, False])
+def test_stale_retry_waits_through_transient_empty_list(driver, local_page, monkeypatch, pending_fetch):
+    wrapped = stabilize(driver, config=StabilizationConfig.strict())
+    wrapped.get(local_page)
+    driver.execute_script("render('initial')")
+    button = wrapped.find_element(By.ID, 'action')
+    original_enabled = button.unwrap().is_enabled
+
+    def redraw_during_enabled_check():
+        # Deterministically redraw after click's initial stability wait.
+        driver.execute_script("""
+            document.querySelector('#list').innerHTML = '';
+            if (arguments[0]) {
+                fetch('/empty').then(r => r.text()).then(() => render('fresh'));
+            } else {
+                setTimeout(() => render('fresh'), 400);
+            }
+        """, pending_fetch)
+        return original_enabled()  # Real WebDriver stale-reference failure.
+
+    monkeypatch.setattr(button.unwrap(), 'is_enabled', redraw_during_enabled_check)
+    button.click()
+
+    assert button.get_attribute('data-generation') == 'fresh'
+    assert driver.find_element(By.ID, 'result').text == 'clicked'
+
+
+def test_disabled_click_reports_element_and_respects_total_timeout(driver, local_page):
+    wrapped = stabilize(driver, config=StabilizationConfig(timeout=2.0))
+    wrapped.get(local_page)
+    driver.execute_script("render('initial'); document.querySelector('#action').disabled = true")
+    button = wrapped.find_element(By.ID, 'action')
+    # Network settling consumes most of the same two-second click budget.
+    driver.execute_script("fetch('/slow')")
+    started = time.monotonic()
+
+    with pytest.raises(TimeoutException) as caught:
+        button.click()
+
+    elapsed = time.monotonic() - started
+    assert 1.9 <= elapsed <= 2.5
+    assert "Element <button> 'Click' was not enabled after 2.0s" in str(caught.value)
+    assert driver.find_element(By.ID, 'result').text == ''
+
+
+def test_find_missing_element_respects_total_timeout(driver, local_page):
+    wrapped = stabilize(driver, config=StabilizationConfig(timeout=2.0))
+    wrapped.get(local_page)
+    driver.execute_script("fetch('/slow')")
+    started = time.monotonic()
+
+    with pytest.raises(NoSuchElementException):
+        wrapped.find_element(By.ID, 'absent')
+
+    assert 1.9 <= time.monotonic() - started <= 2.5
