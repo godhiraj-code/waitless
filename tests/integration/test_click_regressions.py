@@ -13,6 +13,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 
 from waitless import StabilizationConfig, stabilize
+from waitless.selenium_integration import FINGERPRINT_SCRIPT
 
 
 PAGE = rb"""<!doctype html>
@@ -48,6 +49,13 @@ function renderFruits(reverse) {
         '<button class="fruit" data-testid="' + fruit + '" onclick="' +
         'document.querySelector(\'#result\').textContent=\'' + fruit + '\'">' +
         fruit + '</button>').join('');
+}
+function renderDeleteRows(reverse) {
+    const fruits = reverse ? ['banana', 'apple'] : ['apple', 'banana'];
+    document.querySelector('#list').innerHTML = fruits.map(fruit =>
+        '<div class="row"><span>' + fruit + '</span> <button class="delete" onclick="' +
+        'document.querySelector(\'#result\').textContent=\'' + fruit + '\';' +
+        'this.parentElement.remove()">Delete</button></div>').join('');
 }
 </script></body></html>"""
 
@@ -209,3 +217,84 @@ def test_find_missing_element_respects_total_timeout(driver, local_page):
         wrapped.find_element(By.ID, 'absent')
 
     assert 1.9 <= time.monotonic() - started <= 2.5
+
+
+@pytest.mark.parametrize('reorder', [True, False])
+def test_delete_buttons_use_row_context_on_stale_retry(driver, local_page, reorder):
+    wrapped = stabilize(driver)
+    wrapped.get(local_page)
+    driver.execute_script('renderDeleteRows(false)')
+    button = wrapped.find_element(By.CSS_SELECTOR, '.delete')
+    driver.execute_script('renderDeleteRows(arguments[0])', reorder)
+
+    if reorder:
+        with pytest.raises(StaleElementReferenceException, match='Element changed'):
+            button.click()
+        assert driver.find_element(By.ID, 'result').text == ''
+        assert len(driver.find_elements(By.CSS_SELECTOR, '.row')) == 2
+    else:
+        button.click()
+        assert driver.find_element(By.ID, 'result').text == 'apple'
+        assert len(driver.find_elements(By.CSS_SELECTOR, '.row')) == 1
+
+
+def test_permanently_disappeared_button_reports_missing(driver, local_page):
+    wrapped = stabilize(driver, config=StabilizationConfig(timeout=2.0))
+    wrapped.get(local_page)
+    driver.execute_script("render('initial')")
+    button = wrapped.find_element(By.ID, 'action')
+    driver.execute_script("document.querySelector('#list').innerHTML = ''")
+
+    with pytest.raises(NoSuchElementException, match='is no longer on the page') as caught:
+        button.click()
+
+    assert 'not enabled' not in str(caught.value)
+    assert driver.find_element(By.ID, 'result').text == ''
+
+
+def test_fingerprint_snapshot_caps_text_in_single_browser_read(driver, local_page, monkeypatch):
+    wrapped = stabilize(driver)
+    wrapped.get(local_page)
+    driver.execute_script("""
+        document.querySelector('#list').innerHTML = '<div id="large"></div>';
+        document.querySelector('#large').textContent = '  ' + 'X'.repeat(2000) + '  ';
+    """)
+    original_script = driver.execute_script
+    snapshots = []
+
+    def record_snapshot(script, *args):
+        result = original_script(script, *args)
+        if script == FINGERPRINT_SCRIPT:
+            snapshots.append(result)
+        return result
+
+    monkeypatch.setattr(driver, 'execute_script', record_snapshot)
+    element = wrapped.find_element(By.ID, 'large')
+
+    assert len(snapshots) == 1
+    assert snapshots[0][1] == 'X' * 200
+    assert snapshots[0][4] == 'X' * 200
+    assert element._fingerprint[3] == 0
+
+
+def test_find_recovers_when_element_goes_stale_during_snapshot(driver, local_page, monkeypatch):
+    wrapped = stabilize(driver)
+    wrapped.get(local_page)
+    driver.execute_script("render('initial')")
+    original_script = driver.execute_script
+    reads = []
+
+    def replace_during_snapshot(script, *args):
+        if script == FINGERPRINT_SCRIPT:
+            reads.append(True)
+            if len(reads) == 1:
+                original_script("render('fresh')")
+        return original_script(script, *args)
+
+    monkeypatch.setattr(driver, 'execute_script', replace_during_snapshot)
+    button = wrapped.find_element(By.ID, 'action')
+    button.click()
+
+    assert len(reads) == 2
+    assert button.get_attribute('data-generation') == 'fresh'
+    assert driver.find_element(By.ID, 'result').text == 'clicked'

@@ -32,6 +32,24 @@ if TYPE_CHECKING:
 logger = logging.getLogger('waitless')
 
 
+FINGERPRINT_SCRIPT = """
+const element = arguments[0];
+const matches = arguments[1];
+if (!element.isConnected) return null;
+const index = matches === null ? null : matches.indexOf(element);
+if (index === -1) return null;
+const text = node => node && node.getClientRects().length
+    ? (node.innerText || '').trim().slice(0, 200) : '';
+return [
+    element.tagName.toLowerCase(),
+    text(element),
+    ['id', 'name', 'data-testid', 'aria-label'].map(name => element.getAttribute(name)),
+    index,
+    text(element.parentElement)
+];
+"""
+
+
 def _remaining(deadline: float, error: Exception) -> float:
     """Never start another wait after the public call's budget is exhausted."""
     remaining = deadline - time.monotonic()
@@ -45,7 +63,10 @@ def _settle(engine, deadline, error):
     _remaining(deadline, error)
 
 
-def _lookup(find, engine, deadline, error, *, settle_after=False, retry_missing=True):
+def _lookup(
+    find, engine, deadline, error, *, settle_after=False, retry_missing=True,
+    preserve_not_found=False,
+):
     from selenium.common.exceptions import NoSuchElementException
 
     while True:
@@ -57,27 +78,38 @@ def _lookup(find, engine, deadline, error, *, settle_after=False, retry_missing=
                 element = find()
             _remaining(deadline, error)
             return element
-        except NoSuchElementException:
+        except NoSuchElementException as exc:
             if not retry_missing:
                 raise
+            if preserve_not_found:
+                error = exc
             time.sleep(min(engine.config.poll_interval, _remaining(deadline, error)))
 
 
 def _find_element(context, engine, args, kwargs, *, retry_missing=False):
-    from selenium.common.exceptions import NoSuchElementException
+    from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
 
     timeout = engine.config.timeout
     deadline = time.monotonic() + timeout
-    error = NoSuchElementException(f"Element not found within {timeout}s: {args} {kwargs}")
+    locator = f"{args}" + (f" {kwargs}" if kwargs else "")
+    error = NoSuchElementException(f"Element not found within {timeout}s: {locator}")
     find = functools.partial(context.find_element, *args, **kwargs)
-    _settle(engine, deadline, error)
-    element = _lookup(
-        find, engine, deadline, error,
-        settle_after=True, retry_missing=retry_missing,
-    )
-    wrapped = StabilizedWebElement(element, engine, refind=find)
-    _remaining(deadline, error)
-    return wrapped
+    find_matches = functools.partial(context.find_elements, *args, **kwargs)
+    while True:
+        _settle(engine, deadline, error)
+        element = _lookup(
+            find, engine, deadline, error,
+            settle_after=True, retry_missing=retry_missing, preserve_not_found=True,
+        )
+        try:
+            return StabilizedWebElement(
+                element, engine, refind=find, find_matches=find_matches, deadline=deadline,
+            )
+        except StaleElementReferenceException as exc:
+            # The caller has not received an element yet. Retry a redraw during
+            # the snapshot without starting a fresh timeout budget.
+            error = exc
+            time.sleep(min(engine.config.poll_interval, _remaining(deadline, exc)))
 
 
 class _StabilizedSearchContext:
@@ -126,22 +158,35 @@ class StabilizedWebElement:
         element: 'WebElement',
         engine: StabilizationEngine,
         refind: Optional[Callable[[], 'WebElement']] = None,
+        find_matches: Optional[Callable[[], List['WebElement']]] = None,
+        *,
+        deadline: Optional[float] = None,
     ):
         self._element = element
         self._engine = engine
         self._refind = refind
+        self._find_matches = find_matches
         # Capture while the original is live, not after a stale-reference error.
-        self._fingerprint = self._capture_fingerprint(element) if refind else None
+        self._fingerprint = None
+        if refind:
+            if deadline is None:
+                deadline = time.monotonic() + engine.config.timeout
+            self._fingerprint = self._capture_fingerprint(element, deadline)
 
-    @staticmethod
-    def _capture_fingerprint(element):
-        return (
-            element.tag_name,
-            element.text,
-            tuple(element.get_attribute(name) for name in (
-                'id', 'name', 'data-testid', 'aria-label',
-            )),
+    def _capture_fingerprint(self, element, deadline):
+        from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
+
+        error = TimeoutException("Timed out reading element fingerprint")
+        _remaining(deadline, error)
+        matches = self._find_matches() if self._find_matches else None
+        _remaining(deadline, error)
+        fingerprint = self._engine.driver.execute_script(
+            FINGERPRINT_SCRIPT, element, matches,
         )
+        _remaining(deadline, error)
+        if fingerprint is None:
+            raise StaleElementReferenceException("Element became stale while reading its fingerprint")
+        return fingerprint
     
     def __getattr__(self, name: str) -> Any:
         """Delegate attribute access to the underlying element."""
@@ -183,20 +228,25 @@ class StabilizedWebElement:
 
     def _click(self, *args, **kwargs):
         """Wait for enabled state and recover once from a locator-backed stale click."""
-        from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
+        from selenium.common.exceptions import (
+            NoSuchElementException, StaleElementReferenceException, TimeoutException,
+        )
 
         timeout = self._engine.config.timeout
         deadline = time.monotonic() + timeout
         tag, text = (
             self._fingerprint[:2] if self._fingerprint is not None
-            else (self._element.tag_name, self._element.text)
+            else self._capture_fingerprint(self._element, deadline)[:2]
         )
         error = TimeoutException(f"Element <{tag}> {text!r} was not enabled after {timeout}s")
         for attempt in range(2):
             _settle(self._engine, deadline, error)
             if attempt:
-                candidate = _lookup(self._refind, self._engine, deadline, error)
-                if self._capture_fingerprint(candidate) != self._fingerprint:
+                missing = NoSuchElementException(
+                    f"Element <{tag}> {text!r} is no longer on the page"
+                )
+                candidate = _lookup(self._refind, self._engine, deadline, missing)
+                if self._capture_fingerprint(candidate, deadline) != self._fingerprint:
                     raise StaleElementReferenceException(
                         "Element changed; Waitless refused to click a different element "
                         f"instead of <{tag}> {text!r}."

@@ -10,12 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Set the default and strict network idle thresholds to zero so all tracked XHR/fetch requests finish before interactions.
 - Upgrade note: apps with constant polling or analytics can set `network_idle_threshold=2` to restore the previous allowance of up to two pending requests.
+- Clicking a disabled element now waits for it to become enabled and raises a timeout if it stays disabled, identifying the element and configured duration.
+- A stale retry refuses replaced elements with different text or a different fingerprint rather than clicking them.
 
 ### Fixed
 - Re-find elements with the same locator after the page settles, so list redraws during stabilization do not return an outdated element.
 - Retry a locator-backed wrapped click once after a stale element reference, settling before the retry lookup and waiting through a temporarily empty list.
-- Capture the original element's tag, visible text, and identifying attributes while it is live; refuse a stale retry if the replacement fingerprint differs.
-- Wait for the element to be enabled, with a timeout message identifying the element and configured duration.
+- Capture tag, visible text, identifying attributes, locator-match index, and parent text in the fingerprint; refuse reordered rows even when their buttons have identical labels.
+- Read fingerprint fields in one browser script call within the existing deadline, cap element and trimmed parent text at 200 characters, and handle a redraw during the read.
+- Report that an element is no longer on the page when it permanently disappears before a click retry. Preserve Selenium's original not-found diagnostics for unsuccessful lookups.
 - Share one timeout deadline across each `click()` or `find_element()` call's stabilization, polling, and retry waits.
 - Add local-browser and unit regressions for list redraws, reordered targets, transient empty lists, disabled overlays, retry limits, and total timeout budgets.
 

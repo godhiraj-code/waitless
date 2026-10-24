@@ -199,6 +199,9 @@ requests to remain pending for background analytics or polling.
 
 When upgrading to 1.1.0, apps with constant polling or analytics can set
 `network_idle_threshold=2` to restore the previous allowance.
+Two other behavior changes apply: clicking a disabled element now waits and
+raises a timeout if it stays disabled, and a stale retry refuses a replaced
+element with different text or a different fingerprint rather than clicking it.
 
 Many apps have background traffic that never stops:
 - Analytics calls
@@ -220,10 +223,16 @@ The stabilized driver returns wrapped elements that auto-wait before `click()`,
 disabled, its timeout message includes the tag, visible text, and configured
 duration. Each `click()` and `find_element()` call shares one timeout budget
 across its stabilization, polling, and retry waits.
+If an element permanently disappears before a click retry, the error says it
+is no longer on the page instead of reporting that it was not enabled.
 
 Elements returned by `find_element()` retain their locator and a fingerprint
-captured while the element is live: tag name, visible text, and the `id`, `name`,
-`data-testid`, and `aria-label` attributes when present. A stale click can retry
+captured while the element is live: tag name, visible text, the `id`, `name`,
+`data-testid`, and `aria-label` attributes when present, its index among all
+matches of the locator, and its parent's trimmed text. Element and parent text
+are capped at 200 characters in the browser. Fingerprint fields are read in one
+script call within the existing timeout budget, using the locator's matches
+to determine the index. A stale click can retry
 once: Waitless waits for the page to settle, looks up the candidate using the
 same locator, and checks its fingerprint before clicking. If the fingerprint
 differs, Waitless raises `StaleElementReferenceException` explaining that it

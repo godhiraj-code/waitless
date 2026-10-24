@@ -22,9 +22,11 @@ class FakeWebElement:
         self.tag_name = "button"
         self.text = "Apple"
         self.attributes = {}
+        self.parent_text = "Apple row"
+        self.stale = False
         self.get_attribute = Mock(side_effect=self.attributes.get)
         self.find_element = Mock()
-        self.find_elements = Mock()
+        self.find_elements = Mock(return_value=[])
         self.click = Mock()
         self.is_enabled = Mock(return_value=True)
 
@@ -36,11 +38,26 @@ class FakeDriver:
         self.execute_script = Mock()
         self.execute_async_script = Mock()
         self.find_element = Mock()
+        self.find_elements = Mock(return_value=[])
 
 
 @pytest.fixture
 def engine():
+    def fingerprint(script, element, matches):
+        assert script == selenium_integration.FINGERPRINT_SCRIPT
+        if element.stale:
+            raise StaleElementReferenceException()
+        if matches is not None and element not in matches:
+            return None
+        return [
+            element.tag_name, element.text.strip()[:200],
+            [element.attributes.get(name) for name in ('id', 'name', 'data-testid', 'aria-label')],
+            matches.index(element) if matches is not None else None,
+            element.parent_text.strip()[:200],
+        ]
+
     return SimpleNamespace(
+        driver=SimpleNamespace(execute_script=Mock(side_effect=fingerprint)),
         wait_for_stability=Mock(),
         teardown=Mock(),
         config=SimpleNamespace(debug_mode=False, timeout=0.1, poll_interval=0.01),
@@ -89,7 +106,7 @@ def test_script_calls_unwrap_nested_arguments_and_wrap_nested_results(
 def test_descendant_element_lookups_stay_wrapped(engine):
     parent = FakeWebElement()
     child = FakeWebElement()
-    children = [FakeWebElement(), FakeWebElement()]
+    children = [child, FakeWebElement()]
     parent.find_element.return_value = child
     parent.find_elements.return_value = children
     wrapped_parent = StabilizedWebElement(parent, engine)
@@ -109,6 +126,7 @@ def test_shadow_root_element_lookups_stay_wrapped(engine):
     shadow_root = FakeWebElement()
     child = FakeWebElement()
     shadow_root.find_element.return_value = child
+    shadow_root.find_elements.return_value = [child]
     parent.shadow_root = shadow_root
 
     wrapped_parent = StabilizedWebElement(parent, engine)
@@ -170,6 +188,7 @@ def test_unstabilize_tears_down_engine_for_original_driver(engine):
 def test_find_element_refinds_after_settling_with_same_locator(engine, context):
     raw = FakeDriver() if context == "driver" else FakeWebElement()
     first, fresh = FakeWebElement(), FakeWebElement()
+    raw.find_elements.return_value = [fresh]
     events = []
     raw.find_element.side_effect = lambda *a, **kw: events.append("find") or (
         first if events.count("find") == 1 else fresh
@@ -263,7 +282,7 @@ def test_stale_retry_refuses_changed_fingerprint(engine, field):
     first.is_enabled.side_effect = StaleElementReferenceException()
     wrapped = StabilizedWebElement(first, engine, refind=Mock(return_value=replacement))
     # The old element's attributes are no longer readable once it is stale.
-    first.get_attribute.side_effect = StaleElementReferenceException()
+    first.stale = True
 
     with pytest.raises(StaleElementReferenceException, match="Element changed; Waitless refused"):
         wrapped.click()
@@ -350,10 +369,141 @@ def test_find_missing_polling_uses_only_remaining_deadline(engine, clock):
     engine.config.poll_interval = 0.3
     engine.wait_for_stability.side_effect = lambda **kw: clock.advance(1.5)
     raw = FakeDriver()
-    raw.find_element.side_effect = NoSuchElementException()
+    original = NoSuchElementException('Unable to locate element: #absent')
+    original_message = original.msg
+    raw.find_element.side_effect = original
 
-    with pytest.raises(NoSuchElementException, match="within 2.0s"):
+    with pytest.raises(NoSuchElementException) as caught:
         StabilizedWebDriver(raw, engine).find_element("id", "absent")
 
+    assert caught.value is original
+    assert caught.value.msg == original_message
+    assert '{}' not in str(caught.value)
     assert clock.now == pytest.approx(2.0)
     assert raw.find_element.call_count == 2
+
+
+@pytest.mark.parametrize('field', ['index', 'parent_text'])
+def test_stale_retry_refuses_changed_row_context(engine, field):
+    first, replacement, other = FakeWebElement(), FakeWebElement(), FakeWebElement()
+    first.text = replacement.text = 'Delete'
+    first.is_enabled.side_effect = StaleElementReferenceException()
+    if field == 'parent_text':
+        replacement.parent_text = 'Banana row'
+    matches = Mock(side_effect=[
+        [first, other], [other, replacement] if field == 'index' else [replacement, other],
+    ])
+    wrapped = StabilizedWebElement(
+        first, engine, refind=Mock(return_value=replacement), find_matches=matches,
+    )
+
+    with pytest.raises(StaleElementReferenceException, match='Element changed'):
+        wrapped.click()
+
+    replacement.click.assert_not_called()
+
+
+def test_fingerprint_uses_one_script_and_no_attribute_calls(engine):
+    element = FakeWebElement()
+    matches = Mock(return_value=[element])
+
+    wrapped = StabilizedWebElement(
+        element, engine, refind=Mock(return_value=element), find_matches=matches,
+    )
+
+    engine.driver.execute_script.assert_called_once_with(
+        selenium_integration.FINGERPRINT_SCRIPT, element, [element],
+    )
+    matches.assert_called_once_with()
+    element.get_attribute.assert_not_called()
+    assert wrapped._fingerprint[3] == 0
+
+
+@pytest.mark.parametrize('slow_step', ['matches', 'script'])
+def test_fingerprint_reads_obey_find_deadline(engine, clock, slow_step):
+    engine.config.timeout = 2.0
+    engine.wait_for_stability.side_effect = lambda **kw: clock.advance(0.6)
+    raw, element = FakeDriver(), FakeWebElement()
+    raw.find_element.return_value = element
+    raw.find_elements.return_value = [element]
+    if slow_step == 'matches':
+        raw.find_elements.side_effect = lambda *a: clock.advance(0.9) or [element]
+    else:
+        read = engine.driver.execute_script.side_effect
+        engine.driver.execute_script.side_effect = lambda *a: clock.advance(0.9) or read(*a)
+
+    with pytest.raises(TimeoutException, match='Timed out reading element fingerprint'):
+        StabilizedWebDriver(raw, engine).find_element('id', 'action')
+
+    assert clock.now == pytest.approx(2.1)
+    assert engine.driver.execute_script.call_count == (0 if slow_step == 'matches' else 1)
+
+
+def test_find_recovers_stale_fingerprint_read_within_same_deadline(engine, clock):
+    raw = FakeDriver()
+    first, replacement = FakeWebElement(), FakeWebElement()
+    first.stale = True
+    raw.find_element.side_effect = [first, first, replacement, replacement]
+    raw.find_elements.side_effect = [[first], [replacement]]
+
+    wrapped = StabilizedWebDriver(raw, engine).find_element('id', 'action')
+
+    assert wrapped.unwrap() is replacement
+    assert engine.driver.execute_script.call_count == 2
+    assert clock.now == pytest.approx(engine.config.poll_interval)
+    assert engine.wait_for_stability.call_args_list[-1].kwargs['timeout'] < engine.config.timeout
+
+
+def test_retry_does_not_click_after_stale_fingerprint_read(engine):
+    first, replacement = FakeWebElement(), FakeWebElement()
+    first.click.side_effect = StaleElementReferenceException()
+    replacement.stale = True
+    refind = Mock(return_value=replacement)
+    wrapped = StabilizedWebElement(first, engine, refind=refind)
+
+    with pytest.raises(StaleElementReferenceException):
+        wrapped.click()
+
+    refind.assert_called_once_with()
+    replacement.click.assert_not_called()
+
+
+def test_repeated_stale_snapshots_do_not_restart_find_deadline(engine, clock):
+    raw, element = FakeDriver(), FakeWebElement()
+    raw.find_element.return_value = element
+    raw.find_elements.return_value = [element]
+    engine.driver.execute_script.return_value = None
+    engine.driver.execute_script.side_effect = None
+
+    with pytest.raises(StaleElementReferenceException, match='while reading its fingerprint'):
+        StabilizedWebDriver(raw, engine).find_element('id', 'action')
+
+    assert clock.now == pytest.approx(engine.config.timeout)
+    assert engine.driver.execute_script.call_count <= 11
+    assert engine.wait_for_stability.call_args_list[-1].kwargs['timeout'] < engine.config.timeout
+
+
+def test_disappeared_element_reports_missing_instead_of_disabled(engine, clock):
+    first = FakeWebElement()
+    first.is_enabled.side_effect = StaleElementReferenceException()
+    wrapped = StabilizedWebElement(
+        first, engine, refind=Mock(side_effect=NoSuchElementException('not found')),
+    )
+
+    with pytest.raises(NoSuchElementException, match='is no longer on the page') as caught:
+        wrapped.click()
+
+    assert 'not enabled' not in str(caught.value)
+    first.click.assert_not_called()
+
+
+def test_find_timeout_before_lookup_omits_empty_kwargs(engine, clock):
+    engine.wait_for_stability.side_effect = lambda **kw: clock.advance(engine.config.timeout)
+    raw = FakeDriver()
+
+    with pytest.raises(NoSuchElementException) as caught:
+        StabilizedWebDriver(raw, engine).find_element('id', 'action')
+
+    assert "('id', 'action')" in caught.value.msg
+    assert '{}' not in caught.value.msg
+    raw.find_element.assert_not_called()
