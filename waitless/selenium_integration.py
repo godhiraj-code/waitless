@@ -11,7 +11,7 @@ This may affect equality checks or isinstance() calls in test code.
 import functools
 import logging
 import weakref
-from typing import Optional, Any, List, Dict, TYPE_CHECKING
+from typing import Optional, Any, Callable, List, Dict, TYPE_CHECKING
 from weakref import WeakKeyDictionary
 
 from .config import StabilizationConfig, DEFAULT_CONFIG
@@ -40,9 +40,12 @@ class _StabilizedSearchContext:
 
     def find_element(self, *args, **kwargs) -> 'StabilizedWebElement':
         self._engine.wait_for_stability()
+        self._context.find_element(*args, **kwargs)
+        self._engine.wait_for_stability()
         return StabilizedWebElement(
             self._context.find_element(*args, **kwargs),
             self._engine,
+            refind=functools.partial(self._context.find_element, *args, **kwargs),
         )
 
     def find_elements(self, *args, **kwargs) -> List['StabilizedWebElement']:
@@ -76,9 +79,15 @@ class StabilizedWebElement:
     
     INTERACTION_METHODS = {'click', 'send_keys', 'submit', 'clear'}
     
-    def __init__(self, element: 'WebElement', engine: StabilizationEngine):
+    def __init__(
+        self,
+        element: 'WebElement',
+        engine: StabilizationEngine,
+        refind: Optional[Callable[[], 'WebElement']] = None,
+    ):
         self._element = element
         self._engine = engine
+        self._refind = refind
     
     def __getattr__(self, name: str) -> Any:
         """Delegate attribute access to the underlying element."""
@@ -97,8 +106,13 @@ class StabilizedWebElement:
     def _stabilized_find_element(self, *args, **kwargs) -> 'StabilizedWebElement':
         """Keep elements found below this element inside the wrapper boundary."""
         self._engine.wait_for_stability()
+        self._element.find_element(*args, **kwargs)
+        self._engine.wait_for_stability()
         element = self._element.find_element(*args, **kwargs)
-        return StabilizedWebElement(element, self._engine)
+        return StabilizedWebElement(
+            element, self._engine,
+            refind=lambda: self._element.find_element(*args, **kwargs),
+        )
 
     def _stabilized_find_elements(self, *args, **kwargs) -> List['StabilizedWebElement']:
         """Return wrapped descendants while preserving Selenium's list contract."""
@@ -113,10 +127,31 @@ class StabilizedWebElement:
             if self._engine.config.debug_mode:
                 logger.debug(f"[waitless] Stabilizing before {name}()")
             
+            if name == 'click':
+                return self._click(*args, **kwargs)
             self._engine.wait_for_stability()
             return method(*args, **kwargs)
         
         return stabilized_method
+
+    def _click(self, *args, **kwargs):
+        """Wait for enabled state and recover once from a locator-backed stale click."""
+        from selenium.common.exceptions import StaleElementReferenceException
+        from selenium.webdriver.support.ui import WebDriverWait
+
+        for attempt in range(2):
+            self._engine.wait_for_stability()
+            try:
+                WebDriverWait(
+                    self._element,
+                    self._engine.config.timeout,
+                    poll_frequency=self._engine.config.poll_interval,
+                ).until(lambda element: element.is_enabled())
+                return self._element.click(*args, **kwargs)
+            except StaleElementReferenceException:
+                if attempt or self._refind is None:
+                    raise
+                self._element = self._refind()
     
     @property
     def wrapped_element(self) -> 'WebElement':
@@ -231,6 +266,7 @@ class StabilizedWebDriver:
         1. Waits for page stability first
         2. Tries to find the element
         3. If element not found, retries until timeout
+        4. Waits for stability again and re-finds using the same locator
         
         This eliminates the need for explicit WebDriverWait in test code.
         """
@@ -248,8 +284,13 @@ class StabilizedWebDriver:
         
         while (time.monotonic() - start_time) < timeout:
             try:
+                self._driver.find_element(*args, **kwargs)
+                self._engine.wait_for_stability()
                 element = self._driver.find_element(*args, **kwargs)
-                return StabilizedWebElement(element, self._engine)
+                return StabilizedWebElement(
+                    element, self._engine,
+                    refind=functools.partial(self._driver.find_element, *args, **kwargs),
+                )
             except NoSuchElementException as e:
                 last_exception = e
                 time.sleep(poll_interval)

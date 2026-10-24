@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-10-24
+
+### Fixed
+- Re-find elements with the same locator after the page settles, so list redraws during stabilization do not return an outdated element.
+- Retry a locator-backed wrapped click once after a stale element reference, and wait for the element to be enabled using the configured timeout and polling interval.
+- Set the default and strict network idle thresholds to zero so delayed XHR/fetch responses finish before interactions. Background traffic can still be allowed with an explicit threshold.
+- Add local-browser regressions for delayed list replacement and disabled buttons covered by an overlay during a delayed fetch, plus unit coverage for stale retries and enabled-state timeouts.
+
 ## [1.0.5] - 2026-10-18
 
 ### Changed

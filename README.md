@@ -101,7 +101,7 @@ from waitless import stabilize, StabilizationConfig
 config = StabilizationConfig(
     timeout=10,                    # Max wait time (seconds)
     mutation_rate_threshold=50,    # mutations/sec considered stable (allows animations)
-    network_idle_threshold=2,      # Max pending requests (allows background traffic)
+    network_idle_threshold=0,      # Wait for all tracked XHR/fetch requests
     animation_detection=True,      # Track CSS animations (non-blocking in normal mode)
     strictness='normal',           # 'strict' | 'normal' | 'relaxed'
     debug_mode=True                # Enable logging
@@ -191,7 +191,11 @@ Sample output:
 
 ### Network Threshold Warning
 
-The default `network_idle_threshold=2` allows some background traffic.
+The default and `StabilizationConfig.strict()` use `network_idle_threshold=0`,
+so all tracked XHR/fetch requests must finish before the network is considered
+idle. This prevents a delayed response from leaving a loading overlay in place
+when an interaction starts. Set `network_idle_threshold=2` to allow up to two
+requests to remain pending for background analytics or polling.
 
 Many apps have background traffic that never stops:
 - Analytics calls
