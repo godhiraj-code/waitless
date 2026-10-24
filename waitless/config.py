@@ -57,8 +57,8 @@ class StabilizationConfig:
                                  effects ~30/sec) while catching loading bursts (100+/sec).
         
         network_idle_threshold: Maximum pending requests allowed for stability.
-                                Default 2 (allows background analytics/polling).
-                                Set to 0 for strict mode if all requests must complete.
+                                Default 0 (waits for all tracked requests to complete).
+                                Raise to allow background analytics/polling.
         
         animation_detection: Whether to wait for CSS animations/transitions.
                              Default True. Disable for apps with infinite animations.
@@ -101,7 +101,7 @@ class StabilizationConfig:
     timeout: float = 10.0
     dom_settle_time: float = 0.1
     mutation_rate_threshold: float = 50.0  # mutations/sec - allows animations
-    network_idle_threshold: int = 2  # Allow background traffic
+    network_idle_threshold: int = 0  # Wait for all tracked requests
     animation_detection: bool = True
     layout_stability: bool = True
     strictness: StrictnessLevel = 'normal'
@@ -208,6 +208,7 @@ class StabilizationConfig:
         """Factory for strict configuration (all signals, lower timeout)."""
         return cls(
             strictness='strict',
+            network_idle_threshold=0,
             timeout=5.0,
             animation_detection=True,
             layout_stability=True,

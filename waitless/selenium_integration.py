@@ -10,8 +10,9 @@ This may affect equality checks or isinstance() calls in test code.
 
 import functools
 import logging
+import time
 import weakref
-from typing import Optional, Any, List, Dict, TYPE_CHECKING
+from typing import Optional, Any, Callable, List, Dict, TYPE_CHECKING
 from weakref import WeakKeyDictionary
 
 from .config import StabilizationConfig, DEFAULT_CONFIG
@@ -31,6 +32,86 @@ if TYPE_CHECKING:
 logger = logging.getLogger('waitless')
 
 
+FINGERPRINT_SCRIPT = """
+const element = arguments[0];
+const matches = arguments[1];
+if (!element.isConnected) return null;
+const index = matches === null ? null : matches.indexOf(element);
+if (index === -1) return null;
+const text = node => node && node.getClientRects().length
+    ? (node.innerText || '').trim().slice(0, 200) : '';
+return [
+    element.tagName.toLowerCase(),
+    text(element),
+    ['id', 'name', 'data-testid', 'aria-label'].map(name => element.getAttribute(name)),
+    index,
+    text(element.parentElement)
+];
+"""
+
+
+def _remaining(deadline: float, error: Exception) -> float:
+    """Never start another wait after the public call's budget is exhausted."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise error
+    return remaining
+
+
+def _settle(engine, deadline, error):
+    engine.wait_for_stability(timeout=_remaining(deadline, error))
+    _remaining(deadline, error)
+
+
+def _lookup(
+    find, engine, deadline, error, *, settle_after=False, retry_missing=True,
+    preserve_not_found=False,
+):
+    from selenium.common.exceptions import NoSuchElementException
+
+    while True:
+        _remaining(deadline, error)
+        try:
+            element = find()
+            if settle_after:
+                _settle(engine, deadline, error)
+                element = find()
+            _remaining(deadline, error)
+            return element
+        except NoSuchElementException as exc:
+            if not retry_missing:
+                raise
+            if preserve_not_found:
+                error = exc
+            time.sleep(min(engine.config.poll_interval, _remaining(deadline, error)))
+
+
+def _find_element(context, engine, args, kwargs, *, retry_missing=False):
+    from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
+
+    timeout = engine.config.timeout
+    deadline = time.monotonic() + timeout
+    locator = f"{args}" + (f" {kwargs}" if kwargs else "")
+    error = NoSuchElementException(f"Element not found within {timeout}s: {locator}")
+    find = functools.partial(context.find_element, *args, **kwargs)
+    find_matches = functools.partial(context.find_elements, *args, **kwargs)
+    while True:
+        _settle(engine, deadline, error)
+        element = _lookup(
+            find, engine, deadline, error,
+            settle_after=True, retry_missing=retry_missing, preserve_not_found=True,
+        )
+        try:
+            return StabilizedWebElement(
+                element, engine, refind=find, find_matches=find_matches, deadline=deadline,
+            )
+        except StaleElementReferenceException as exc:
+            # The caller has not received an element yet. Retry a redraw during
+            # the snapshot without starting a fresh timeout budget.
+            error = exc
+            time.sleep(min(engine.config.poll_interval, _remaining(deadline, exc)))
+
+
 class _StabilizedSearchContext:
     """Keep element lookups from contexts such as ShadowRoot stabilized."""
 
@@ -39,11 +120,7 @@ class _StabilizedSearchContext:
         self._engine = engine
 
     def find_element(self, *args, **kwargs) -> 'StabilizedWebElement':
-        self._engine.wait_for_stability()
-        return StabilizedWebElement(
-            self._context.find_element(*args, **kwargs),
-            self._engine,
-        )
+        return _find_element(self._context, self._engine, args, kwargs)
 
     def find_elements(self, *args, **kwargs) -> List['StabilizedWebElement']:
         self._engine.wait_for_stability()
@@ -76,9 +153,40 @@ class StabilizedWebElement:
     
     INTERACTION_METHODS = {'click', 'send_keys', 'submit', 'clear'}
     
-    def __init__(self, element: 'WebElement', engine: StabilizationEngine):
+    def __init__(
+        self,
+        element: 'WebElement',
+        engine: StabilizationEngine,
+        refind: Optional[Callable[[], 'WebElement']] = None,
+        find_matches: Optional[Callable[[], List['WebElement']]] = None,
+        *,
+        deadline: Optional[float] = None,
+    ):
         self._element = element
         self._engine = engine
+        self._refind = refind
+        self._find_matches = find_matches
+        # Capture while the original is live, not after a stale-reference error.
+        self._fingerprint = None
+        if refind:
+            if deadline is None:
+                deadline = time.monotonic() + engine.config.timeout
+            self._fingerprint = self._capture_fingerprint(element, deadline)
+
+    def _capture_fingerprint(self, element, deadline):
+        from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
+
+        error = TimeoutException("Timed out reading element fingerprint")
+        _remaining(deadline, error)
+        matches = self._find_matches() if self._find_matches else None
+        _remaining(deadline, error)
+        fingerprint = self._engine.driver.execute_script(
+            FINGERPRINT_SCRIPT, element, matches,
+        )
+        _remaining(deadline, error)
+        if fingerprint is None:
+            raise StaleElementReferenceException("Element became stale while reading its fingerprint")
+        return fingerprint
     
     def __getattr__(self, name: str) -> Any:
         """Delegate attribute access to the underlying element."""
@@ -96,9 +204,7 @@ class StabilizedWebElement:
 
     def _stabilized_find_element(self, *args, **kwargs) -> 'StabilizedWebElement':
         """Keep elements found below this element inside the wrapper boundary."""
-        self._engine.wait_for_stability()
-        element = self._element.find_element(*args, **kwargs)
-        return StabilizedWebElement(element, self._engine)
+        return _find_element(self._element, self._engine, args, kwargs)
 
     def _stabilized_find_elements(self, *args, **kwargs) -> List['StabilizedWebElement']:
         """Return wrapped descendants while preserving Selenium's list contract."""
@@ -113,10 +219,53 @@ class StabilizedWebElement:
             if self._engine.config.debug_mode:
                 logger.debug(f"[waitless] Stabilizing before {name}()")
             
+            if name == 'click':
+                return self._click(*args, **kwargs)
             self._engine.wait_for_stability()
             return method(*args, **kwargs)
         
         return stabilized_method
+
+    def _click(self, *args, **kwargs):
+        """Wait for enabled state and recover once from a locator-backed stale click."""
+        from selenium.common.exceptions import (
+            NoSuchElementException, StaleElementReferenceException, TimeoutException,
+        )
+
+        timeout = self._engine.config.timeout
+        deadline = time.monotonic() + timeout
+        tag, text = (
+            self._fingerprint[:2] if self._fingerprint is not None
+            else self._capture_fingerprint(self._element, deadline)[:2]
+        )
+        error = TimeoutException(f"Element <{tag}> {text!r} was not enabled after {timeout}s")
+        for attempt in range(2):
+            _settle(self._engine, deadline, error)
+            if attempt:
+                missing = NoSuchElementException(
+                    f"Element <{tag}> {text!r} is no longer on the page"
+                )
+                candidate = _lookup(self._refind, self._engine, deadline, missing)
+                if self._capture_fingerprint(candidate, deadline) != self._fingerprint:
+                    raise StaleElementReferenceException(
+                        "Element changed; Waitless refused to click a different element "
+                        f"instead of <{tag}> {text!r}."
+                    )
+                _remaining(deadline, error)
+                self._element = candidate
+            try:
+                while True:
+                    _remaining(deadline, error)
+                    if self._element.is_enabled():
+                        break
+                    time.sleep(min(
+                        self._engine.config.poll_interval, _remaining(deadline, error),
+                    ))
+                _remaining(deadline, error)
+                return self._element.click(*args, **kwargs)
+            except StaleElementReferenceException:
+                if attempt or self._refind is None:
+                    raise
     
     @property
     def wrapped_element(self) -> 'WebElement':
@@ -231,33 +380,13 @@ class StabilizedWebDriver:
         1. Waits for page stability first
         2. Tries to find the element
         3. If element not found, retries until timeout
+        4. Waits for stability again and re-finds using the same locator
         
         This eliminates the need for explicit WebDriverWait in test code.
         """
-        import time
-        from selenium.common.exceptions import NoSuchElementException
-        
-        timeout = self._engine.config.timeout
-        poll_interval = self._engine.config.poll_interval
-        last_exception = None
-
-        # Instrumentation/stabilization failures are part of the public contract:
-        # do not hide them behind element lookup retries.
-        self._engine.wait_for_stability()
-        start_time = time.monotonic()
-        
-        while (time.monotonic() - start_time) < timeout:
-            try:
-                element = self._driver.find_element(*args, **kwargs)
-                return StabilizedWebElement(element, self._engine)
-            except NoSuchElementException as e:
-                last_exception = e
-                time.sleep(poll_interval)
-        
-        # Timeout reached - raise the last exception
-        if last_exception:
-            raise last_exception
-        raise NoSuchElementException(f"Element not found within {timeout}s: {args}")
+        return _find_element(
+            self._driver, self._engine, args, kwargs, retry_missing=True,
+        )
     
     def _stabilized_find_elements(self, *args, **kwargs) -> List[StabilizedWebElement]:
         """

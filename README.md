@@ -101,7 +101,7 @@ from waitless import stabilize, StabilizationConfig
 config = StabilizationConfig(
     timeout=10,                    # Max wait time (seconds)
     mutation_rate_threshold=50,    # mutations/sec considered stable (allows animations)
-    network_idle_threshold=2,      # Max pending requests (allows background traffic)
+    network_idle_threshold=0,      # Wait for all tracked XHR/fetch requests
     animation_detection=True,      # Track CSS animations (non-blocking in normal mode)
     strictness='normal',           # 'strict' | 'normal' | 'relaxed'
     debug_mode=True                # Enable logging
@@ -191,7 +191,17 @@ Sample output:
 
 ### Network Threshold Warning
 
-The default `network_idle_threshold=2` allows some background traffic.
+The default and `StabilizationConfig.strict()` use `network_idle_threshold=0`,
+so all tracked XHR/fetch requests must finish before the network is considered
+idle. This prevents a delayed response from leaving a loading overlay in place
+when an interaction starts. Set `network_idle_threshold=2` to allow up to two
+requests to remain pending for background analytics or polling.
+
+When upgrading to 1.1.0, apps with constant polling or analytics can set
+`network_idle_threshold=2` to restore the previous allowance.
+Two other behavior changes apply: clicking a disabled element now waits and
+raises a timeout if it stays disabled, and a stale retry refuses a replaced
+element with different text or a different fingerprint rather than clicking it.
 
 Many apps have background traffic that never stops:
 - Analytics calls
@@ -207,7 +217,32 @@ config = StabilizationConfig(network_idle_threshold=3)
 ### Wrapped Elements
 
 The stabilized driver returns wrapped elements that auto-wait before `click()`,
-`send_keys()`, `submit()`, and `clear()`. They behave like WebElements but:
+`send_keys()`, `submit()`, and `clear()`.
+
+`click()` also waits for `is_enabled()` to become true. If the element stays
+disabled, its timeout message includes the tag, visible text, and configured
+duration. Each `click()` and `find_element()` call shares one timeout budget
+across its stabilization, polling, and retry waits.
+If an element permanently disappears before a click retry, the error says it
+is no longer on the page instead of reporting that it was not enabled.
+
+Elements returned by `find_element()` retain their locator and a fingerprint
+captured while the element is live: tag name, visible text, the `id`, `name`,
+`data-testid`, and `aria-label` attributes when present, its index among all
+matches of the locator, and its parent's trimmed text. Element and parent text
+are capped at 200 characters in the browser. Fingerprint fields are read in one
+script call within the existing timeout budget, using the locator's matches
+to determine the index. A stale click can retry
+once: Waitless waits for the page to settle, looks up the candidate using the
+same locator, and checks its fingerprint before clicking. If the fingerprint
+differs, Waitless raises `StaleElementReferenceException` explaining that it
+refused to click a different element. Identical replacements can be retried;
+elements indistinguishable by these fields cannot be distinguished by this check.
+
+Elements returned by `find_elements()` or `execute_script()` (including
+`execute_async_script()`) do not retain a locator and do not retry stale clicks.
+Their clicks still wait for stability and enabled state. They behave like
+WebElements but:
 
 - `isinstance(element, WebElement)` returns `False`
 - Use `.unwrap()` to get the original element if needed
@@ -299,7 +334,7 @@ It isn't tested against SeleniumBase in this repository. `stabilize()` accepts a
 Run the diagnostics (see [Diagnostics](#diagnostics)) to see which signal is blocking. WebSocket/SSE tracking is off by default, so it doesn't block unless you enable it. For background XHR/fetch traffic, raise `network_idle_threshold` or use `StabilizationConfig.relaxed()` (DOM only). For infinite spinners, set `animation_detection=False`.
 
 **How much slower does it make my tests?**
-Waitless polls every 50 ms (`poll_interval`) and returns as soon as the enabled signals are stable, after a 0.1 s DOM quiet period (`dom_settle_time`). On a settled page that's a short pause per interaction; on a busy page it waits as long as the page is busy, up to `timeout` (10 s by default). Measure it in your environment with `python benchmarks/overhead_test.py` from a repository checkout.
+Waitless polls every 50 ms (`poll_interval`) while waiting for stability. The DOM must have been quiet for 0.1 s (`dom_settle_time`), and the other configured signals must also be stable. An already settled page can pass the check immediately; Waitless does not add a fixed pause to every interaction. New activity extends the wait within the call's timeout budget (10 s by default). `find_element()` checks stability before and after locating an element, and `click()` also waits for enabled state. WebDriver commands themselves, including any Selenium implicit waits, may extend wall-clock time beyond that budget. Measure it in your environment with `python benchmarks/overhead_test.py` from a repository checkout.
 
 **`isinstance(element, WebElement)` is `False`.**
 That's expected: the stabilized driver returns wrapped elements. Call `.unwrap()` on an element, or use `driver.unwrapped` for the original driver. See [Wrapped Elements](#wrapped-elements).

@@ -17,7 +17,7 @@ class TestStabilizationConfig:
         
         assert config.timeout == 10.0
         assert config.dom_settle_time == 0.1
-        assert config.network_idle_threshold == 2
+        assert config.network_idle_threshold == 0
         assert config.animation_detection is True
         assert config.strictness == 'normal'
         assert config.debug_mode is False
@@ -117,6 +117,7 @@ class TestStabilizationConfig:
         assert config.strictness == 'strict'
         assert config.timeout == 5.0
         assert config.animation_detection is True
+        assert config.network_idle_threshold == 0
         assert config.layout_stability is True
     
     def test_factory_relaxed(self):
