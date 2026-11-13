@@ -371,6 +371,10 @@ That's expected: the stabilized driver returns wrapped elements. Call `.unwrap()
 | `StabilizedWebElement` | Wrapped element with auto-wait |
 | `StabilizationTimeout` | Exception when UI doesn't stabilize |
 
+## Learn more
+
+[The Automation Architect's Playbook](https://www.dhirajdas.dev/automation-book) is a free guide. The [Waitless chapter](https://www.dhirajdas.dev/automation-book#chapter-3-waitless-intelligent-stability-detection) covers why browser tests flake and how this library waits for a stable page.
+
 ## License
 
 MIT. See [LICENSE](https://github.com/godhiraj-code/waitless/blob/main/LICENSE).
