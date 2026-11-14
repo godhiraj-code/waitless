@@ -258,7 +258,9 @@ class StabilizationEngine:
                 if self.config.reinject_on_navigation:
                     self._debug("Browser status unavailable, attempting reinject")
                     self._inject_instrumentation()
-                    time.sleep(self.config.poll_interval)
+                    remaining = deadline - time.monotonic()
+                    if remaining > 0:
+                        time.sleep(min(self.config.poll_interval, remaining))
                     continue
                 else:
                     raise InstrumentationError(
